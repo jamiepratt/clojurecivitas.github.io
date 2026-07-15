@@ -91,6 +91,7 @@ jobs:
           path: site/_site
 
   deploy:
+    if: github.repository == 'ClojureCivitas/clojurecivitas.github.io'
     needs: build
     permissions:
       pages: write
