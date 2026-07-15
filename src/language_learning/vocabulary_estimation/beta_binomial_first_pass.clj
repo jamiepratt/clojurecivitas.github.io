@@ -36,7 +36,7 @@
    ".ve-reading-guide{border-left:4px solid var(--ve-accent);padding:.2rem 0 .2rem 1rem;margin:1rem 0}.ve-reading-guide h3{font-size:1rem;margin:.1rem 0 .35rem}.ve-reading-guide ul{margin-bottom:.2rem}"
    ".ve-hierarchy{display:grid;grid-template-columns:minmax(8rem,.7fr) auto minmax(0,1.5fr);gap:.7rem;align-items:center}.ve-hierarchy-node{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.45rem;padding:.7rem;text-align:center;background:var(--bs-body-bg,#fff);overflow-wrap:anywhere}.ve-hierarchy-node strong{display:block;color:var(--ve-accent)}"
    ".ve-hierarchy-arrow{font-size:1.5rem;color:var(--ve-accent);font-weight:800}.ve-form-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}.ve-sense-gap{grid-column:1/-1;border:2px dashed var(--ve-warm);border-radius:.45rem;padding:.65rem;text-align:center;color:var(--bs-body-color,#212529);background:color-mix(in srgb,var(--bs-body-bg,#fff) 92%,var(--ve-warm) 8%)}"
-   ".ve-workflow-caption{text-align:center;color:var(--ve-muted);font-size:.88rem}.ve-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}"
+   ".ve-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}"
    "@media(max-width:767px){.ve-hierarchy{grid-template-columns:minmax(0,1fr)}.ve-hierarchy-arrow{transform:rotate(90deg);text-align:center}.ve-form-list{grid-template-columns:minmax(0,1fr)}}"
    "@media(max-width:575px){.ve-table th,.ve-table td{padding:.45rem}.ve-figure{padding:.65rem}}")])
 
@@ -61,15 +61,18 @@
 ^:kindly/hide-code
 (kind/hiccup
  [:nav.series-toc {:aria-labelledby "series-contents-heading"}
-  [:h2#series-contents-heading "Series contents"]
-  [:p "The second article applies the previous Bayesian tools to one deliberately narrow measurement problem."]
-  [:ol
+  [:h2#series-contents-heading "Theory to vocabulary-estimation series"]
+  [:p "Article 0 explains the workflow; this article applies the previous Bayesian tools to one deliberately narrow measurement problem."]
+  [:ol {:start 0}
+   [:li [:a {:href "managing_brilliant_but_uneven_minds.html"}
+         "Managing brilliant but uneven minds: my theory-to-algorithm workflow"]
+    [:span.series-status "published"]]
    [:li [:a {:href "bayes_theorem_simulations.html"}
          "Bayes' theorem from uncertainty to decision"]
     [:span.series-status "published"]]
    [:li.series-current [:a {:href "beta_binomial_first_pass.html"
                             :aria-current "page"}
-                        "Estimating vocabulary size: a stratified Beta–binomial first pass"]
+                        "Estimating vocabulary size with a simple Bayesian model"]
     [:span.series-status "you are here"]]
    [:li [:a {:href "pair_frequency_logistic_v2_article.html"}
          "Does pair frequency predict learner responses?"]
@@ -804,7 +807,7 @@
   [:span.article-marker "Build / Check / Decide"]
   [:p "Build: compute the exact finite-pool distribution and a qualified estimate. Check: reproduce it with a seeded simulation and inspect stopping only at round boundaries. Decide: stop for voluntary choice, adequate precision after the minimum, or the soft maximum—without changing the rule after seeing one learner's result."]])
 ;;
-;; ## 8. Reproduce: keep the model separate from the machinery
+;; ## 8. Reproduce: protect this model's evidence
 ;;
 ;; A trustworthy calculation needs a boundary between the mathematical model
 ;; and software that reads files, draws charts, or responds to clicks. A **pure
@@ -824,28 +827,11 @@
 
 ^:kindly/hide-code
 (kind/hiccup
- [:dl.ve-definition-grid
-  [:div.ve-definition [:dt "Parity test"] [:dd "The same fixture is scored in Clojure on the JVM and ClojureScript in the browser; both implementations must agree on the protected behavior."]]
-  [:div.ve-definition [:dt "Build"] [:dd "Transform source and dependencies into artifacts that another tool can execute or publish."]]
-  [:div.ve-definition [:dt "Render"] [:dd "Evaluate the executable article and turn its structured source into the final page readers see."]]
-  [:div.ve-definition [:dt "CI"] [:dd "Continuous integration: automated builds and tests run on repository changes rather than relying only on one workstation."]]
-  [:div.ve-definition [:dt "Release gate"] [:dd "A required check that must pass before publication; here the final gate includes a full-site render."]]])
-
-^:kindly/hide-code
-(kind/mermaid
- "flowchart LR
-    E[Estimand] --> V[Versioned pool<br/>and raw events]
-    V --> P[Pure scorer]
-    P --> S[Seeded prediction]
-    S --> T[CLJ and CLJS<br/>parity tests]
-    T --> R[Rendered article]
-    R --> B[Browser checks]
-    B --> G[Publication gate]")
-
-^:kindly/hide-code
-(kind/hiccup
- [:p.ve-workflow-caption
-  "Model/software workflow. Every arrow carries explicit, versioned evidence forward; a later presentation layer does not redefine the estimand or scorer."])
+ [:div.ve-callout
+  [:strong "The wider workflow lives in Article 0"]
+  [:p "This section keeps the evidence specific to v1: pure scoring, immutable fixtures and response events, seeded replay, and CLJ/CLJS parity. "
+   [:a {:href "managing_brilliant_but_uneven_minds.html#the-research-cycle-in-public"}
+    "Article 0 explains the complete theory-to-algorithm cycle and its separate model, software, and publication gates."]]])
 
 ^:kindly/hide-code
 (def worked-fixture
@@ -872,12 +858,11 @@
   [:p "Calling this function twice with the same fixture must return equal maps; the final regression checks enforce that deterministic replay."]
   [:p.article-code-source [:a {:href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/beta_binomial_first_pass.clj"} "View the fixture, scorer, and assertions"]]])
 
-;; The article itself is a separate presentation path: Clay evaluates the
-;; Clojure source, writes QMD, Quarto renders HTML, and Scittle/Reagent supplies
-;; browser interactions. Browser checks cover accessible labels, both colour
-;; themes, responsive widths, control behavior, and console errors. **CI** can
-;; automate repeatable tests, but a passing software build is not evidence that
-;; a provisional measurement assumption is true.
+;; Clay evaluates this article's Clojure source, writes QMD, and hands it to
+;; Quarto; Scittle/Reagent supplies the bounded browser interactions. Browser
+;; checks cover labels, both colour themes, responsive widths, control behaviour,
+;; and console errors. Those checks protect this explanation without changing
+;; the model or turning a provisional measurement assumption into a fact.
 ;;
 ;; ## What this model postpones
 ;;
