@@ -69,3 +69,18 @@
     (is (str/includes? script "toolbar.hidden = !hasAvailableControls"))
     (is (str/includes? script "codeAction.hidden = codeDetails.length === 0"))
     (is (str/includes? script "equationsAction.hidden = equationDetails.length === 0"))))
+
+(deftest v2-article-compares-latent-evidence-and-both-models
+  (let [article (slurp (io/file authored-root
+                                "pair_frequency_logistic_v2_article.clj"))
+        interactive (slurp (io/file authored-root
+                                    "pair_frequency_logistic_v2_interactive.cljs"))]
+    (is (str/includes? article "pair-frequency-model-scenarios"))
+    (doseq [label ["Latent knowledge" "Observed evidence" "Model predictions"
+                   "Smooth frequency signal" "Non-logistic mixture"
+                   "10% false negatives"]]
+      (is (str/includes? interactive label)))
+    (is (str/includes? interactive "v1-step-path"))
+    (is (str/includes? interactive ":v2-probability"))
+    (is (str/includes? interactive
+                       "(mount! \"pair-frequency-model-scenarios\""))))
