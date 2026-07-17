@@ -207,6 +207,37 @@
     (is (str/includes? source
                        "(controls/install\n {:article-id :purpose"))))
 
+(deftest workflow-article-owns-the-management-method-not-the-product-purpose
+  (let [source (slurp (io/file authored-root
+                               "managing_brilliant_but_uneven_minds.clj"))]
+    (doseq [contract ["brilliant but profoundly uneven minds"
+                      "The management job"
+                      "The theory-to-algorithm cycle"
+                      "Workflow validation"
+                      "Model validation"
+                      "Software validation"
+                      "Publication validation"
+                      "human responsibility"
+                      "I have not yet read"
+                      "why_estimate_vocabulary.html"]]
+      (is (str/includes? source contract)
+          (str "Missing Article 1 management contract: " contract)))
+    (is (str/includes? source
+                       "(controls/install\n {:article-id :workflow")
+        "Article 1 must use canonical 1-based series and contents controls")
+    (is (= 1 (occurrence-count #"(?i)LexiBench" source))
+        "Article 1 should retain one short LexiBench bridge, not its purpose essay")
+    (doseq [duplicated-purpose-section
+            ["## From an expectation to an estimand"
+             "Hidden choices behind a vocabulary-size result"
+             "The current first-pass estimand is deliberately narrower"
+             "## Theory already used, and theory still to earn"]]
+      (is (not (str/includes? source duplicated-purpose-section))
+          (str "Article 2 material remains duplicated: "
+               duplicated-purpose-section)))
+    (is (not (str/includes? source "[:nav.series-toc"))
+        "Article 1 must not retain its hand-built zero-based series list")))
+
 (deftest purpose-article-production-captures-are-immutable-and-described
   (let [capture-root (io/file authored-root "lexibench_captures")
         manifest-file (io/file capture-root
