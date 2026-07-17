@@ -1,13 +1,14 @@
 ^{:kindly/hide-code true
   :kindly/options {:html/deps [:scittle :reagent]}
   :clay {:hide-info-line true
-         :title "Bayes' Theorem from Uncertainty to Decision"
+         :title "Bayes' theorem: from uncertainty to decision"
          :quarto {:author :jamiep
-                  :description "A visual, interactive introduction to Bayesian updating, posterior sampling, decisions, and Gaussian grid approximation."
+                  :subtitle "Four executable simulations, from globe tosses to a finite vocabulary-pair prediction"
+                  :description "Four visual, interactive simulations introduce Bayesian updating, posterior sampling, decisions, Gaussian grid approximation, and finite-pool vocabulary prediction."
                   :type :post
-                  :date "2026-07-13"
+                  :date "2026-07-17"
                   :image "bayes_theorem_simulations_preview.png"
-                  :image-alt "Three Gaussian parameter-grid heatmaps show the posterior before and after a seeded height observation, with playback controls."
+                  :image-alt "A finite-pool posterior-predictive chart follows binary responses for lemma–surface-form pairs."
                   :category :concepts
                   :tags [:bayesian-statistics :clojure :clojurescript :scittle :simulation]
                   :keywords [:bayes-theorem :grid-approximation :posterior-sampling :normal-distribution :data-visualisation]}}}
@@ -70,6 +71,7 @@
    ".bp-definition-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:.7rem;margin:1rem 0}"
    ".bp-definition{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.45rem;padding:.75rem;background:var(--bs-body-bg,#fff)}"
    ".bp-definition dt{font-weight:800;color:var(--bp-accent)}.bp-definition dd{margin:.25rem 0 0}"
+   ".bp-pair-prompt{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-left:4px solid var(--bp-accent);border-radius:.45rem;padding:.85rem 1rem;margin:1rem 0;background:color-mix(in srgb,var(--bs-body-bg,#fff) 92%,var(--bp-accent) 8%);overflow-wrap:anywhere}.bp-pair-prompt p:last-child{margin-bottom:0}"
    ".bp-engineering-caption{text-align:center;color:var(--bp-muted);font-size:.88rem}"
    ".series-toc{min-width:0;border:1px solid var(--bs-border-color,#ced4da);border-radius:.6rem;padding:clamp(.85rem,3vw,1.2rem);margin:0 0 1.4rem;background:var(--bs-body-bg,#fff)}"
    ".series-toc h2{font-size:1.2rem;margin:0 0 .55rem}.series-toc p{margin:0 0 .7rem}.series-toc ol{margin:0;padding-left:1.45rem}.series-toc li{padding:.18rem .45rem}"
@@ -78,37 +80,27 @@
    "@media(max-width:767px){.bp-process-strip{grid-template-columns:minmax(0,1fr)}.bp-process-symbol{min-height:1.2rem}.bp-shell{padding:.75rem}.bp-controls{align-items:stretch}.bp-button{flex:1}.bp-chart{padding:.5rem}}")])
 
 ^:kindly/hide-code
-(kind/hiccup
- [:nav.series-toc {:aria-labelledby "series-contents-heading"}
-  [:h2#series-contents-heading "Theory to vocabulary-estimation series"]
-  [:p "Article 0 explains the workflow; this article supplies probability tools used by the later vocabulary-estimation articles."]
-  [:ol {:start 0}
-   [:li
-    [:a {:href "managing_brilliant_but_uneven_minds.html"}
-     "Managing brilliant but uneven minds: my theory-to-algorithm workflow"]
-    [:span.series-status "published"]]
-   [:li.series-current
-    [:a {:href "bayes_theorem_simulations.html" :aria-current "page"}
-     "Bayes' theorem from uncertainty to decision"]
-    [:span.series-status "you are here"]]
-   [:li [:a {:href "beta_binomial_first_pass.html"} "Estimating vocabulary size with a simple Bayesian model"] [:span.series-status "published"]]
-   [:li [:a {:href "pair_frequency_logistic_v2_article.html"} "Does pair frequency predict learner responses?"] [:span.series-status "published"]]
-   [:li "From Self-Reported CEFR to a Versioned Lemma–Form-Pair Pool" [:span.series-status "planned"]]
-   [:li "From Correlated Form Pairs to Latent Lemma Knowledge" [:span.series-status "planned"]]
-   [:li "Modelling Correct, Wrong, and Don't-Know Separately" [:span.series-status "planned"]]
-   [:li "Calibrating Items Before IRT and Adaptive Selection" [:span.series-status "planned"]]
-   [:li "When Contexts and Senses Become Identifiable" [:span.series-status "planned"]]]])
+(controls/install
+ {:article-id :bayes
+  :sections [{:id "five-ideas" :label "Five ideas under every update"}
+             {:id "globe-update" :label "Update from globe tosses"}
+             {:id "posterior-decision" :label "Sample and decide"}
+             {:id "gaussian-grid" :label "Scale up to two parameters"}
+             {:id "vocabulary-bridge" :label "Predict a finite pair total"}]
+  :technical-sections [{:id "reproducibility" :label "Reproduce the lesson"}
+                       {:id "sources" :label "Sources"}]})
 
 ;; A probability model is a disciplined way to reason when one answer is
 ;; unknown. It does not remove uncertainty. It records candidate answers,
 ;; states how observations would arise under each candidate, and updates their
 ;; relative plausibility when data arrive.
 ;;
-;; This tutorial rebuilds three simulations I first made with Daniel Slutsky's
+;; This tutorial retains three simulations I first made with Daniel Slutsky's
 ;; [JointProb group](https://scicloj.github.io/docs/community/groups/jointprob/).
 ;; The examples come from sections 2.2, 3.2, and 4.3 of Richard McElreath's
-;; *Statistical Rethinking*. No statistics or programming background is
-;; assumed. Each chapter asks one practical question:
+;; *Statistical Rethinking*. A fourth simulation carries the same ideas into
+;; the vocabulary-estimation series. No statistics or programming background
+;; is assumed. Each chapter asks one practical question:
 
 ^:kindly/hide-code
 (kind/hiccup
@@ -116,12 +108,10 @@
   [:li [:strong "Update"] [:br] "How should observations change uncertainty?"]
   [:li [:strong "Sample and decide"] [:br] "How can a distribution guide an action?"]
   [:li [:strong "Scale up"] [:br] "How does the same update work with two unknown parameters?"]
+  [:li [:strong "Bridge"] [:br] "How can responses predict a finite known-pair total with visible uncertainty?"]
   [:li [:strong "Reproduce"] [:br] "How do code, seeds, tests, and rendering make the lesson checkable?"]])
 
-^:kindly/hide-code
-(controls/install)
-
-;; ## The five ideas under every update
+;; ## The five ideas under every update {#five-ideas}
 ;;
 ;; Suppose I do not know what proportion of a globe is covered by water.
 ;; **Uncertainty** means more than one answer remains credible. A **probability**
@@ -197,7 +187,7 @@
   [:div.bp-process-symbol {:aria-hidden "true"} "→"]
   [:div.bp-process-step [:strong "Posterior"] [:small "normalised update"]]])
 
-;; ## 1. Update: learning from globe tosses
+;; ## 1. Update: learning from globe tosses {#globe-update}
 ;;
 ;; Imagine tossing and catching a globe. The point under a finger is recorded
 ;; as water or land. If a candidate says water is common, water observations
@@ -252,6 +242,98 @@
               (* acc (/ (- (inc n) i) i)))
             1.0
             (range 1 (inc k)))))
+
+^:kindly/hide-code
+(defn beta-posterior-parameters
+  "Update Beta prior parameters from binary pair-recognition counts."
+  [{:keys [alpha beta]} {:keys [recognized not-recognized]}]
+  {:pre [(pos? alpha)
+         (pos? beta)
+         (<= 0 recognized)
+         (<= 0 not-recognized)]}
+  {:alpha (+ (double alpha) recognized)
+   :beta (+ (double beta) not-recognized)})
+
+^:kindly/hide-code
+(defn finite-pool-predictive-mean
+  "Posterior predictive mean for total known pairs, including observed pairs."
+  [pool-size recognized not-recognized alpha beta]
+  (let [observed (+ recognized not-recognized)
+        remaining (- pool-size observed)]
+    {:pre [(<= 0 observed pool-size)
+           (pos? alpha)
+           (pos? beta)]}
+    (+ recognized (* remaining (/ alpha (+ alpha beta))))))
+
+^{:kindly/hide-code true
+  :kindly/kind :kind/hidden}
+(defn- seeded-uniform! [state]
+  (let [next-state (mod (* 48271 @state) 2147483647)]
+    (reset! state next-state)
+    (/ (dec next-state) 2147483646.0)))
+
+^{:kindly/hide-code true
+  :kindly/kind :kind/hidden}
+(defn- integer-gamma-sample!
+  "Gamma(shape, 1) draw for a positive integer shape."
+  [state shape]
+  {:pre [(pos? shape) (== shape (Math/rint shape))]}
+  (reduce + (repeatedly (long shape)
+                        #(- (Math/log (max 1.0e-15
+                                           (seeded-uniform! state)))))))
+
+^{:kindly/hide-code true
+  :kindly/kind :kind/hidden}
+(defn- beta-sample! [state alpha beta]
+  (let [x (integer-gamma-sample! state alpha)
+        y (integer-gamma-sample! state beta)]
+    (/ x (+ x y))))
+
+^{:kindly/hide-code true
+  :kindly/kind :kind/hidden}
+(defn- binomial-sample! [state trials probability]
+  (reduce (fn [successes _]
+            (if (< (seeded-uniform! state) probability)
+              (inc successes)
+              successes))
+          0
+          (range trials)))
+
+^:kindly/hide-code
+(defn seeded-finite-pool-predictive
+  "Draw a replayable posterior predictive distribution for the total known
+  pairs in a finite pool. The Beta parameters must be positive integers; this
+  article uses Beta(1,1), so binary counts preserve that condition."
+  [{:keys [pool-size recognized not-recognized prior-alpha prior-beta
+           draw-count seed]}]
+  (let [observed (+ recognized not-recognized)
+        remaining (- pool-size observed)
+        {:keys [alpha beta] :as posterior}
+        (beta-posterior-parameters
+         {:alpha prior-alpha :beta prior-beta}
+         {:recognized recognized :not-recognized not-recognized})
+        state (atom (long seed))
+        totals (vec
+                (repeatedly
+                 draw-count
+                 (fn []
+                   (let [knowing-rate (beta-sample! state alpha beta)]
+                     (+ recognized
+                        (binomial-sample! state remaining knowing-rate))))))
+        ordered (vec (sort totals))
+        quantile (fn [probability]
+                   (nth ordered
+                        (long (Math/floor (* probability
+                                             (dec draw-count))))))]
+    {:pre [(<= 0 observed pool-size)
+           (pos? draw-count)
+           (pos? seed)]}
+    {:posterior posterior
+     :mean (finite-pool-predictive-mean
+            pool-size recognized not-recognized alpha beta)
+     :lower (quantile 0.025)
+     :upper (quantile 0.975)
+     :frequencies (frequencies totals)}))
 
 ;; When only the counts matter, there are
 ;;
@@ -440,7 +522,7 @@
   [:strong "Chapter 1 recap"]
   [:p "Build: list candidate values and specify a prior and likelihood. Check: normalise and inspect the update after known observations. Decide: carry the posterior forward as the prior for the next observation."]])
 
-;; ## 2. Sample: turning uncertainty into a decision
+;; ## 2. Sample: turning uncertainty into a decision {#posterior-decision}
 ;;
 ;; A posterior is a distribution, not automatically a single estimate. To act,
 ;; we must say what action is available and what mistakes cost. A **decision**
@@ -566,7 +648,7 @@
   [:strong "Chapter 2 recap"]
   [:p "Build: define the action and its loss. Check: compare the direct grid minimum with a seeded Monte Carlo approximation. Decide: report the estimate appropriate to the declared loss, not a context-free ‘best’ number."]])
 
-;; ## 3. Scale up: a Gaussian model with two parameters
+;; ## 3. Scale up: a Gaussian model with two parameters {#gaussian-grid}
 ;;
 ;; The globe model had one parameter. Adult height introduces two. A
 ;; **Gaussian distribution**—the familiar symmetric bell shape—is described by
@@ -677,7 +759,129 @@
   [:strong "Chapter 3 recap"]
   [:p "Build: cross candidate means and standard deviations into a two-parameter grid. Check: inspect each likelihood and the before/after surfaces. Decide: retain the complete posterior surface, not only its highest cell."]])
 
-;; ## 4. Make the lesson reproducible
+;; ## 4. Bridge to a finite vocabulary-pair total {#vocabulary-bridge}
+;;
+;; Now replace water and land with two responses about a
+;; **lemma–surface-form pair**: recognized or not recognized. The interaction
+;; uses a declared pool of exactly 100 pairs and a fixed 12-pair teaching
+;; fixture. Before any responses, its **Beta(1,1) prior** gives equal density to
+;; every possible pair-knowing rate $p$ from 0 to 1. It is deliberately broad,
+;; not a claim about real learners.
+;;
+;; A recognized response contributes likelihood $p$; a not-recognized response
+;; contributes likelihood $1-p$. If $r$ pairs were recognized and $u$ were not,
+;; the posterior is
+;;
+;; $$p \mid r,u \sim \operatorname{Beta}(1+r,1+u).$$
+
+^:kindly/hide-code
+(math/explanation
+ "math-pair-beta-posterior"
+ "Beta posterior after binary pair-recognition responses"
+ [["p" "The unknown proportion of pairs that would be recognized under this teaching model."]
+  ["r" "The number of observed pairs marked recognized."]
+  ["u" "The number of observed pairs marked not recognized."]
+  ["Beta(1+r,1+u)" "The updated distribution after adding recognized and not-recognized counts to the Beta(1,1) prior."]]
+ "This compact update treats the binary responses as exchangeable and error-free; later articles must examine whether those assumptions are defensible.")
+
+^:kindly/hide-code
+(math/equation-code-detail
+ "code-pair-beta-posterior"
+ "Updating the declared Beta(1,1) prior"
+ {:kind :source
+  :label "bayes_theorem_simulations.clj — beta-posterior-parameters"
+  :href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/bayes_theorem_simulations.clj"
+  :symbols [["alpha" "The first Beta parameter: prior 1 plus recognized count r."]
+            ["beta" "The second Beta parameter: prior 1 plus not-recognized count u."]
+            ["recognized" "The implementation name for r."]
+            ["not-recognized" "The implementation name for u."]]}
+ [:div
+  [:pre [:code "(defn beta-posterior-parameters\n  [{:keys [alpha beta]} {:keys [recognized not-recognized]}]\n  {:alpha (+ alpha recognized)\n   :beta (+ beta not-recognized)})"]]
+  [:p "The prior parameters and observed counts stay explicit rather than being hidden in browser state."]])
+
+;; A posterior describes uncertainty about $p$. A **posterior predictive
+;; distribution** asks a different question: after this update, which totals
+;; might the unasked pairs produce? The observed recognized pairs are already
+;; known inside the model, so the prediction adds them to a draw for the
+;; remaining pairs:
+;;
+;; $$K=r+K_{\text{unasked}},\qquad
+;; K_{\text{unasked}}\mid p\sim
+;; \operatorname{Binomial}(100-r-u,p).$$
+
+^:kindly/hide-code
+(math/explanation
+ "math-finite-pool-predictive"
+ "Posterior prediction of the finite known-pair total"
+ [["K" "The predicted total known pairs in the declared 100-pair pool."]
+  ["K_unasked" "The unknown number of known pairs among those not yet asked."]
+  ["r" "Observed recognized pairs, included directly in the total."]
+  ["100 − r − u" "The number of unasked pairs remaining in the finite pool."]
+  ["Binomial(n,p)" "A distribution for the count of successes among n binary trials at rate p."]]
+ "Each predictive draw first samples p from the posterior, then samples the unasked known-pair count conditional on that p.")
+
+^:kindly/hide-code
+(math/equation-code-detail
+ "code-finite-pool-predictive"
+ "Drawing a finite-pool known-pair total"
+ {:kind :source
+  :label "bayes_theorem_simulations.clj — seeded-finite-pool-predictive"
+  :href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/bayes_theorem_simulations.clj"
+  :symbols [["pool-size" "The finite total 100 represented by K."]
+            ["recognized" "Observed known-pair count r, added to every prediction."]
+            ["not-recognized" "Observed not-known count u, excluded from the unasked count."]
+            ["knowing-rate" "One draw of p from the Beta posterior."]
+            ["remaining" "The implementation name for 100 − r − u."]]}
+ [:div
+  [:pre [:code "(let [knowing-rate (beta-sample! state alpha beta)]\n  (+ recognized\n     (binomial-sample! state remaining knowing-rate)))"]]
+  [:p "Repeating this seeded draw 4,000 times produces the distribution shown by the interactive chart."]])
+
+^:kindly/hide-code
+(def bridge-example-predictive
+  (seeded-finite-pool-predictive
+   {:pool-size 100
+    :recognized 7
+    :not-recognized 3
+    :prior-alpha 1
+    :prior-beta 1
+    :draw-count 4000
+    :seed 620260717}))
+
+^:kindly/hide-code
+(kind/hiccup
+ [:details.bp-details
+  [:summary "Worked numerical checkpoint: 7 recognized, 3 not recognized"]
+  [:div
+   [:p "The prior Beta(1,1) becomes Beta(8,4). Ninety pairs remain unasked. The posterior-predictive mean total is 7 + 90 × 8/12 = 67.0 known pairs."]
+   [:p "With seed 620260717, 4,000 predictive draws give a central 95% interval from 42 to 89. Resetting and replaying the same response counts reproduces that interval exactly."]]])
+
+;; The predictive mean is one possible **decision**: a single count to report
+;; when squared error is the declared loss. The 95% interval keeps
+;; **uncertainty** visible rather than pretending the decision is exact. Change
+;; the binary responses below and watch the prior become a posterior, then a
+;; posterior prediction for the complete finite pool.
+
+^:kindly/hide-code
+(kind/hiccup
+ [:div.bp-simulator
+  [:div#vocabulary-pair-simulator
+   [:p "Loading the finite-pool vocabulary-pair simulator…"]]
+  [:noscript "This simulator needs JavaScript. The equations and worked checkpoint above remain available without it."]])
+
+^:kindly/hide-code
+(kind/hiccup
+ [:div.bp-callout
+  [:strong "Boundary: demonstration, not validation"]
+  [:p "This is a teaching and model-behavior demonstration, not learner validation. Its pair prompts are not representative learners or calibrated LexiBench items. It predicts only the intermediate total of known lemma–surface-form pairs; it does not infer known lemmas."]
+  [:p "The bridge prepares the reader for the next article but does not implement or change Proposal 1. Proposal 1 keeps its own versioned 8,000-pair fixture, strata, stopping rule, reference values, and evidence."]])
+
+^:kindly/hide-code
+(kind/hiccup
+ [:div.article-recap
+  [:strong "Chapter 4 recap"]
+  [:p "Build: declare the 100-pair pool, Beta(1,1) prior, and binary response model. Check: replay the seeded posterior prediction and inspect its interval. Decide: report a finite-pool summary only with its assumptions and uncertainty."]])
+
+;; ## 5. Make the lesson reproducible {#reproducibility}
 ;;
 ;; An executable article joins an explanation to calculations that can be run
 ;; again. **Source code** is the human-readable set of instructions stored in
@@ -713,19 +917,19 @@
 ;;
 ;; A **regression check** asks whether an established property still holds
 ;; after a change. The assertions below protect the 201-point grid, combinatorial
-;; count, normalisation, decision, and positive density. The browser checks add
-;; interaction, console, layout, focus, label, and theme verification. A random
-;; seed makes simulations replayable, so a changed result can be distinguished
-;; from ordinary random variation.
+;; count, normalisation, decision, positive density, Beta update, and finite-pool
+;; prediction. The browser checks add interaction, console, layout, focus,
+;; label, and theme verification. A random seed makes simulations replayable,
+;; so a changed result can be distinguished from ordinary random variation.
 
 ^:kindly/hide-code
 (math/code-detail
  "code-browser-mounts"
- "Mounting all three browser components"
+ "Mounting all four browser components"
  [:div
   [:p "A mount point is an empty, uniquely identified HTML element reserved for an interactive component. On page load, the browser finds each preserved ID and asks Reagent to render the matching component there."]
-  [:pre [:code "(defn ^:export mount []\n  (when-let [root (js/document.getElementById\n                   \"globe-update-simulator\")]\n    (rdom/render [globe-update-simulator] root))\n  (when-let [root (js/document.getElementById\n                   \"posterior-sampling-simulator\")]\n    (rdom/render [posterior-sampling-simulator] root))\n  (when-let [root (js/document.getElementById\n                   \"gaussian-height-simulator\")]\n    (rdom/render [gaussian-height-simulator] root)))"]]
-  [:p "The conditional lookup lets the same source load safely even if one mount is absent. The three IDs remain unchanged from the published article."]
+  [:pre [:code "(defn ^:export mount []\n  (when-let [root (js/document.getElementById\n                   \"globe-update-simulator\")]\n    (rdom/render [globe-update-simulator] root))\n  (when-let [root (js/document.getElementById\n                   \"posterior-sampling-simulator\")]\n    (rdom/render [posterior-sampling-simulator] root))\n  (when-let [root (js/document.getElementById\n                   \"gaussian-height-simulator\")]\n    (rdom/render [gaussian-height-simulator] root))\n  (when-let [root (js/document.getElementById\n                   \"vocabulary-pair-simulator\")]\n    (rdom/render [vocabulary-bridge-simulator] root)))"]]
+  [:p "The conditional lookup lets the same source load safely even if one mount is absent. The three retained IDs remain unchanged; the fourth is additive."]
   [:p.article-code-source [:a {:href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/bayes_theorem_simulations_interactive.cljs"} "View the complete mounting and browser code"]]])
 
 ^:kindly/hide-code
@@ -735,7 +939,7 @@
   [:p "The next article reuses the same structure: candidate knowing rates receive priors; quiz responses supply likelihoods; posteriors predict untested items; seeded draws describe uncertainty; and an explicit stopping decision depends on the intended measurement task."]
   [:p [:a {:href "beta_binomial_first_pass.html"} "Continue to the stratified Beta–binomial vocabulary model →"]]])
 
-;; ## Sources
+;; ## Sources {#sources}
 ;;
 ;; - Jamie Pratt and the JointProb group, [original interactive simulations](https://jointprob.github.io/jointprob-shadow-cljs/#normal-distribution) and [ClojureScript source](https://github.com/jointprob/jointprob-shadow-cljs/tree/master/src/cljs).
 ;; - Richard McElreath, *Statistical Rethinking*, examples from sections 2.2, 3.2, and 4.3. The prompts here are paraphrases.
@@ -754,6 +958,13 @@
              1.0e-12))
   (assert (= 0.645 (first example-minimum-loss)))
   (assert (pos? (normal-density 151.765 155.0 8.0)))
+  (assert (= {:alpha 8.0 :beta 4.0}
+             (:posterior bridge-example-predictive)))
+  (assert (= 67.0 (:mean bridge-example-predictive)))
+  (assert (= [42 89]
+             ((juxt :lower :upper) bridge-example-predictive)))
+  (assert (= 4000
+             (reduce + (vals (:frequencies bridge-example-predictive)))))
   (kind/hiccup
    [:p.bp-note
     [:span.article-marker "Regression check"]

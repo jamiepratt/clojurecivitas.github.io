@@ -280,7 +280,48 @@
                duplicated-purpose-section)))
     (is (not (str/includes? source "[:nav.series-toc"))
         "Article 1 must not retain its hand-built zero-based series list")))
+(deftest bayes-article-adopts-the-series-shell-and-retains-four-simulations
+  (let [article (slurp (io/file authored-root
+                                "bayes_theorem_simulations.clj"))
+        interactive (slurp (io/file authored-root
+                                    "bayes_theorem_simulations_interactive.cljs"))]
+    (is (str/includes? article
+                       ":title \"Bayes' theorem: from uncertainty to decision\""))
+    (is (str/includes? article ":subtitle"))
+    (is (str/includes? article
+                       "(controls/install\n {:article-id :bayes"))
+    (is (not (re-find #":label \"[1-5]\." article))
+        "Ordered contents must not duplicate chapter numbers inside labels")
+    (doseq [mount-id ["globe-update-simulator"
+                      "posterior-sampling-simulator"
+                      "gaussian-height-simulator"
+                      "vocabulary-pair-simulator"]]
+      (testing mount-id
+        (is (str/includes? article mount-id))
+        (is (str/includes? interactive mount-id))))
+    (doseq [boundary ["Beta(1,1)"
+                      "100-pair"
+                      "lemma–surface-form pairs"
+                      "teaching and model-behavior demonstration"
+                      "not learner validation"
+                      "does not implement or change Proposal 1"]]
+      (is (str/includes? article boundary)
+          (str "Missing Bayes bridge boundary: " boundary)))))
 
+(deftest bayes-predictive-helper-results-stay-out-of-visible-prose
+  (let [article (slurp (io/file authored-root
+                                "bayes_theorem_simulations.clj"))]
+    (doseq [helper ["seeded-uniform!"
+                    "integer-gamma-sample!"
+                    "beta-sample!"
+                    "binomial-sample!"]]
+      (is (re-find
+           (re-pattern
+            (str "\\^\\{:kindly/hide-code true\\s+"
+                 ":kindly/kind :kind/hidden\\}\\s+"
+                 "\\(defn- " (java.util.regex.Pattern/quote helper)))
+           article)
+          (str helper " must not emit its Var into the rendered article")))))
 (deftest purpose-article-production-captures-are-immutable-and-described
   (let [capture-root (io/file authored-root "lexibench_captures")
         manifest-file (io/file capture-root
@@ -452,7 +493,7 @@
             "Theory-to-algorithm research cycle"]
            ["bayes_theorem_simulations.clj"
             "bayes_theorem_simulations_preview.png"
-            "Three Gaussian parameter-grid heatmaps"]
+            "A finite-pool posterior-predictive chart"]
            ["beta_binomial_first_pass.clj"
             "beta_binomial_first_pass_preview.png"
             "Beta-binomial posterior density"]

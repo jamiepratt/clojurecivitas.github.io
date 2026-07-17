@@ -55,6 +55,60 @@
          (mapv * prior)
          normalize-mean-one)))
 
+(defn beta-posterior-parameters
+  [{:keys [alpha beta]} {:keys [recognized not-recognized]}]
+  {:alpha (+ alpha recognized)
+   :beta (+ beta not-recognized)})
+
+(defn finite-pool-predictive-mean
+  [pool-size recognized not-recognized alpha beta]
+  (let [remaining (- pool-size recognized not-recognized)]
+    (+ recognized (* remaining (/ alpha (+ alpha beta))))))
+
+(defn integer-gamma-sample! [rng shape]
+  (reduce + (repeatedly (int shape)
+                        #(- (js/Math.log
+                             (max 1.0e-15 (uniform! rng)))))))
+
+(defn beta-sample! [rng alpha beta]
+  (let [x (integer-gamma-sample! rng alpha)
+        y (integer-gamma-sample! rng beta)]
+    (/ x (+ x y))))
+
+(defn binomial-sample! [rng trials probability]
+  (reduce (fn [successes _]
+            (if (< (uniform! rng) probability)
+              (inc successes)
+              successes))
+          0
+          (range trials)))
+
+(defn finite-pool-predictive-summary
+  [{:keys [pool-size recognized not-recognized prior-alpha prior-beta
+           draw-count seed]}]
+  (let [remaining (- pool-size recognized not-recognized)
+        {:keys [alpha beta] :as posterior}
+        (beta-posterior-parameters
+         {:alpha prior-alpha :beta prior-beta}
+         {:recognized recognized :not-recognized not-recognized})
+        rng (make-rng seed)
+        totals (vec
+                (repeatedly
+                 draw-count
+                 (fn []
+                   (+ recognized
+                      (binomial-sample!
+                       rng remaining (beta-sample! rng alpha beta))))))
+        ordered (vec (sort totals))
+        quantile #(nth ordered
+                       (js/Math.floor (* % (dec draw-count))))]
+    {:posterior posterior
+     :mean (finite-pool-predictive-mean
+            pool-size recognized not-recognized alpha beta)
+     :lower (quantile 0.025)
+     :upper (quantile 0.975)
+     :frequencies (frequencies totals)}))
+
 (def uniform-prior (vec (repeat 201 1.0)))
 (def step-up-prior (mapv #(if (<= % 0.5) 0.0 2.0) probability-grid))
 (def step-down-prior (mapv #(if (<= % 0.5) 2.0 0.0) probability-grid))
@@ -71,6 +125,55 @@
 
 (def priors-by-label
   (into {} (map (juxt :label :values) prior-options)))
+
+(def vocabulary-pair-fixture
+  [{:lemma "dom" :form "dom" :meaning "house"}
+   {:lemma "być" :form "jest" :meaning "is"}
+   {:lemma "mieć" :form "mam" :meaning "I have"}
+   {:lemma "dziecko" :form "dzieci" :meaning "children"}
+   {:lemma "iść" :form "idzie" :meaning "goes"}
+   {:lemma "dobry" :form "dobra" :meaning "good"}
+   {:lemma "książka" :form "książkę" :meaning "book"}
+   {:lemma "człowiek" :form "ludzie" :meaning "people"}
+   {:lemma "widzieć" :form "widział" :meaning "saw"}
+   {:lemma "duży" :form "większy" :meaning "bigger"}
+   {:lemma "ręka" :form "ręce" :meaning "hand"}
+   {:lemma "wziąć" :form "weźmie" :meaning "will take"}])
+
+(def vocabulary-pool-size 100)
+(def vocabulary-predictive-seed 620260717)
+(def vocabulary-predictive-draw-count 4000)
+(def initial-vocabulary-bridge-state {:responses []})
+(defonce vocabulary-bridge-state (r/atom initial-vocabulary-bridge-state))
+
+(defn vocabulary-response-counts [responses]
+  {:recognized (count (filter #{:recognized} responses))
+   :not-recognized (count (filter #{:not-recognized} responses))})
+
+(defn record-pair-response! [response]
+  (when (and (contains? #{:recognized :not-recognized} response)
+             (< (count (:responses @vocabulary-bridge-state))
+                (count vocabulary-pair-fixture)))
+    (swap! vocabulary-bridge-state update :responses conj response)))
+
+(defn undo-pair-response! []
+  (swap! vocabulary-bridge-state update :responses
+         #(vec (butlast %))))
+
+(defn reset-vocabulary-bridge! []
+  (reset! vocabulary-bridge-state initial-vocabulary-bridge-state))
+
+(defn current-vocabulary-bridge-summary []
+  (let [{:keys [recognized not-recognized]}
+        (vocabulary-response-counts (:responses @vocabulary-bridge-state))]
+    (finite-pool-predictive-summary
+     {:pool-size vocabulary-pool-size
+      :recognized recognized
+      :not-recognized not-recognized
+      :prior-alpha 1
+      :prior-beta 1
+      :draw-count vocabulary-predictive-draw-count
+      :seed vocabulary-predictive-seed})))
 
 (def number-formatter (js/Intl.NumberFormat. "en-US"))
 
@@ -187,6 +290,132 @@
                                      (on-click)))}
                    attributes)
     label]))
+
+(defn finite-pool-predictive-chart
+  [{:keys [mean lower upper frequencies]}]
+  (let [maximum (apply max 1 (vals frequencies))
+        total-x (fn [total] (+ 48 (* 5.5 total)))
+        mean-x (total-x mean)]
+    [:figure.bp-chart
+     [:h4 "Posterior prediction of known pairs"]
+     [:svg {:view-box "0 0 640 285"
+            :role "img"
+            :aria-labelledby "pair-predictive-title pair-predictive-desc"}
+      [:title#pair-predictive-title
+       "Seeded posterior predictive distribution for the 100-pair total"]
+      [:desc#pair-predictive-desc
+       (str "Four thousand seeded predictions. The posterior predictive mean is "
+            (format-decimal mean 1) " known pairs and the central 95 percent interval runs from "
+            lower " to " upper " known pairs.")]
+      [:rect {:x (total-x lower)
+              :y 38
+              :width (max 1 (- (total-x upper) (total-x lower)))
+              :height 182
+              :fill "var(--bp-warm, #a34f00)"
+              :fill-opacity 0.12}]
+      (for [total (range 101)
+            :let [frequency (get frequencies total 0)
+                  height (* 176 (/ frequency maximum))]]
+        ^{:key total}
+        [:rect {:x (total-x total)
+                :y (- 220 height)
+                :width 4.7
+                :height height
+                :fill "var(--bp-accent, #1464b5)"
+                :fill-opacity 0.82}])
+      [:line {:x1 mean-x :x2 mean-x :y1 35 :y2 220
+              :stroke "var(--bp-warm, #a34f00)"
+              :stroke-width 3
+              :stroke-dasharray "6 4"}]
+      [:line.bp-axis {:x1 48 :x2 603 :y1 220 :y2 220}]
+      (for [total [0 25 50 75 100]]
+        ^{:key total}
+        [:text {:x (total-x total) :y 242 :text-anchor "middle"
+                :font-size 11 :fill "currentColor"}
+         total])
+      [:text {:x 326 :y 273 :text-anchor "middle" :font-size 12
+              :fill "currentColor"}
+       "Known lemma–surface-form pairs out of 100"]]
+     [:p.bp-caption
+      (str "Blue bars: seeded predictive frequency. Shaded band: central 95% interval "
+           lower "–" upper ". Dashed line: mean " (format-decimal mean 1) ".")]]))
+
+(defn vocabulary-bridge-simulator []
+  (let [responses (:responses @vocabulary-bridge-state)
+        response-count (count responses)
+        {:keys [recognized not-recognized]}
+        (vocabulary-response-counts responses)
+        {:keys [posterior mean lower upper] :as summary}
+        (current-vocabulary-bridge-summary)
+        next-pair (nth vocabulary-pair-fixture response-count nil)
+        completed? (= response-count (count vocabulary-pair-fixture))]
+    [:section.bp-shell {:aria-labelledby "vocabulary-bridge-heading"}
+     [:h3#vocabulary-bridge-heading "Predict a finite 100-pair total"]
+     [:p
+      "Treat each answer as binary evidence about one lemma–surface-form pair. The fixture is deliberately small and transparent: it is a teaching model, not a calibrated vocabulary test."]
+     [:div.bp-process-strip
+      {:role "img"
+       :aria-label
+       (str "Beta one one prior updated by " recognized " recognized and "
+            not-recognized " not-recognized responses to form a Beta "
+            (:alpha posterior) " " (:beta posterior)
+            " posterior, then predict the finite total among 100 pairs.")}
+      [:div.bp-process-step [:strong "Prior"] [:small "Beta(1,1)"]]
+      [:div.bp-process-symbol {:aria-hidden "true"} "×"]
+      [:div.bp-process-step
+       [:strong "Likelihood"]
+       [:small (str recognized " recognized · " not-recognized " not")]]
+      [:div.bp-process-symbol {:aria-hidden "true"} "="]
+      [:div.bp-process-step
+       [:strong "Posterior"]
+       [:small (str "Beta(" (:alpha posterior) "," (:beta posterior) ")")]]
+      [:div.bp-process-symbol {:aria-label "then predict"} "→"]
+      [:div.bp-process-step
+       [:strong "100-pair prediction"]
+       [:small (str (format-decimal mean 1) " · 95% " lower "–" upper)]]]
+     [:div.bp-pair-prompt
+      (if next-pair
+        [:div
+         [:p.bp-stat
+          [:strong (str "Fixture pair " (inc response-count) " of "
+                        (count vocabulary-pair-fixture))]]
+         [:p
+          "Would you recognise "
+          [:strong (:form next-pair)]
+          " as a form of "
+          [:strong (:lemma next-pair)]
+          " with the intended meaning “" (:meaning next-pair) "”? "]]
+        [:p [:strong "Fixture complete."]
+         " Undo or reset to explore another response path."])]
+     [:div.bp-controls
+      [control-button "Recognized"
+       #(record-pair-response! :recognized)
+       {:class "bp-button bp-primary" :disabled completed?}]
+      [control-button "Not recognized"
+       #(record-pair-response! :not-recognized)
+       {:disabled completed?}]
+      [control-button "Undo" undo-pair-response!
+       {:disabled (zero? response-count)}]
+      [control-button "Reset" reset-vocabulary-bridge!
+       {:disabled (zero? response-count)}]]
+     [:p.bp-stat {:aria-live "polite"}
+      (str response-count " responses: " recognized " recognized, "
+           not-recognized " not recognized. Posterior Beta("
+           (:alpha posterior) ", " (:beta posterior) "). Predicted mean "
+           (format-decimal mean 1) " known pairs out of 100; central 95% interval "
+           lower " to " upper ".")]
+     [finite-pool-predictive-chart summary]
+     [:details.bp-details
+      [:summary "What this teaching model assumes"]
+      [:div
+       [:ul
+        [:li "The finite pool contains exactly 100 versioned pairs."]
+        [:li "The asked pairs are treated as exchangeable observations from that pool."]
+        [:li "Recognized and not recognized are treated as error-free binary evidence."]
+        [:li "A seeded Beta draw supplies a knowing rate; a seeded binomial draw predicts knowledge among the unasked pairs."]]
+       [:p "Real items can be guessed, misunderstood, or differently difficult. Those omissions are boundaries, not evidence that the model is learner-valid."]]]
+     [:p.bp-note
+      "Posterior-predictive seed 620260717 · 4,000 draws · Reset plus the same responses reproduces the same distribution."]]))
 
 ;; Simulation 1: sequential globe observations.
 
@@ -844,13 +1073,17 @@
      [:p.bp-note "Each map contains all 1,681 (μ, σ) candidates. Colour opacity uses a logarithmic scale within that panel; compare location and concentration, not absolute colour between panels."]]))
 
 (defn ^:export mount []
-  (when-let [root (js/document.getElementById "globe-update-simulator")]
-    (rdom/render [globe-update-simulator] root))
-  (when-let [root (js/document.getElementById "posterior-sampling-simulator")]
-    (rdom/render [posterior-sampling-simulator] root))
-  (when-let [root (js/document.getElementById "gaussian-height-simulator")]
-    (rdom/render [gaussian-height-simulator] root)))
+  (when (exists? js/document)
+    (when-let [root (js/document.getElementById "globe-update-simulator")]
+      (rdom/render [globe-update-simulator] root))
+    (when-let [root (js/document.getElementById "posterior-sampling-simulator")]
+      (rdom/render [posterior-sampling-simulator] root))
+    (when-let [root (js/document.getElementById "gaussian-height-simulator")]
+      (rdom/render [gaussian-height-simulator] root))
+    (when-let [root (js/document.getElementById "vocabulary-pair-simulator")]
+      (rdom/render [vocabulary-bridge-simulator] root))))
 
-(if (= "loading" js/document.readyState)
-  (.addEventListener js/document "DOMContentLoaded" mount)
-  (mount))
+(when (exists? js/document)
+  (if (= "loading" js/document.readyState)
+    (.addEventListener js/document "DOMContentLoaded" mount)
+    (mount)))
