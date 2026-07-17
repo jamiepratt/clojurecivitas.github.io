@@ -496,7 +496,7 @@
             "A finite-pool posterior-predictive chart"]
            ["beta_binomial_first_pass.clj"
             "beta_binomial_first_pass_preview.png"
-            "Beta-binomial posterior density"]
+            "Proposal 1 article title and subtitle"]
            ["pair_frequency_logistic_v2_article.clj"
             "pair_frequency_logistic_v2_posterior_preview.png"
             "Cell-failure explorer"]]
@@ -524,3 +524,63 @@
     (is (str/includes?
          article
          "worst cell achieved only 92.4% coverage—462 of 500 intervals"))))
+
+(deftest proposal-1-article-follows-one-seeded-learner-attempt
+  (let [article (slurp (io/file authored-root
+                                "beta_binomial_first_pass.clj"))
+        section-anchors ["{#attempt-target}"
+                         "{#attempt-selection}"
+                         "{#attempt-responses}"
+                         "{#attempt-update}"
+                         "{#attempt-prediction}"
+                         "{#attempt-stopping}"
+                         "{#attempt-replay}"]
+        anchor-offsets (mapv #(.indexOf article %) section-anchors)]
+    (is (str/includes? article
+                       ":title \"Proposal 1: estimating known pairs\""))
+    (is (str/includes? article ":subtitle"))
+    (is (str/includes? article
+                       "(controls/install\n {:article-id :proposal-1"))
+    (is (not (str/includes? article "[:nav.series-toc"))
+        "Proposal 1 must use the canonical 1-based series navigation")
+    (is (every? #(<= 0 %) anchor-offsets)
+        "Every learner-attempt stage must have a direct anchor")
+    (is (apply < anchor-offsets)
+        "The always-visible narrative must follow selection through replay")
+    (doseq [contract ["one seeded synthetic learner attempt"
+                      "current research implementation target"
+                      "`stratified-beta-binomial-v1`"
+                      "not the scorer currently deployed at Lexibench"
+                      "receptive knowledge of lemma–surface-form pairs"
+                      "frequency rank is a proxy"
+                      "adaptive selection"
+                      "later work after item calibration"]]
+      (is (str/includes? article contract)
+          (str "Missing Proposal 1 boundary: " contract)))))
+
+(deftest proposal-1-retains-the-reference-fixture-and-all-four-interactions
+  (let [article (slurp (io/file authored-root
+                                "beta_binomial_first_pass.clj"))
+        interactive (slurp (io/file authored-root
+                                    "beta_binomial_first_pass_interactive.cljs"))]
+    (doseq [reference ["8,000-pair"
+                       "4,334"
+                       "3,404–5,249"
+                       ":algorithm-id :stratified-beta-binomial-v1"
+                       ":seed 20260712"
+                       ":response :correct"
+                       ":response :wrong"
+                       ":response :dont-know"]]
+      (is (str/includes? article reference)
+          (str "Missing Proposal 1 reference contract: " reference)))
+    (doseq [mount-id ["balanced-round-simulator"
+                      "beta-binomial-simulator"
+                      "posterior-sampling-simulator"
+                      "stopping-rule-explorer"]]
+      (testing mount-id
+        (is (str/includes? article mount-id))
+        (is (str/includes? interactive mount-id))))
+    (is (str/includes? interactive "(def seeded-attempt-selection-limit 32)")
+        "The fixed schedule must reach the 32-event reference attempt")
+    (is (str/includes? article ":raw-responses seeded-attempt-events")
+        "The replay fixture must preserve the original three-way events")))

@@ -147,20 +147,37 @@
                     :color "var(--bs-body-color, #212529)"}}
    label])
 
-(def balanced-response-sequence
-  [:correct :wrong :dont-know :correct :correct :dont-know :wrong :correct
-   :dont-know :correct :wrong :wrong :correct :dont-know :correct :correct])
+(def seeded-attempt-responses-by-stratum
+  [[:correct :correct :correct :correct]
+   [:correct :correct :correct :correct]
+   [:correct :correct :correct :wrong]
+   [:correct :correct :correct :dont-know]
+   [:correct :correct :wrong :dont-know]
+   [:correct :wrong :dont-know :wrong]
+   [:correct :dont-know :wrong :dont-know]
+   [:wrong :dont-know :wrong :dont-know]])
 
-(def balanced-selection-limit 16)
+(def seeded-stratum-orders
+  [[3 8 1 6 4 2 7 5]
+   [5 2 7 1 8 4 3 6]
+   [8 4 6 2 7 3 5 1]
+   [2 6 1 7 3 5 8 4]])
+
+(def seeded-attempt-selection-limit 32)
+(def balanced-selection-limit seeded-attempt-selection-limit)
 (defonce balanced-state (r/atom {:revealed 0}))
 
 (defn scheduled-selection [index]
-  (let [stratum (inc (mod index 8))
-        round (inc (quot index 8))]
+  (let [presentation-index (mod index 8)
+        round-index (quot index 8)
+        stratum (get-in seeded-stratum-orders
+                        [round-index presentation-index])
+        round (inc round-index)]
     {:stratum stratum
      :round round
      :item-id (str "S" stratum "-R" round)
-     :response (nth balanced-response-sequence index)}))
+     :response (get-in seeded-attempt-responses-by-stratum
+                       [(dec stratum) (dec round)])}))
 
 (defn reveal-next-selection! []
   (swap! balanced-state update :revealed
@@ -173,11 +190,11 @@
   (let [revealed (:revealed @balanced-state)
         selections (mapv scheduled-selection (range revealed))
         latest (peek selections)
-        complete? (= revealed balanced-selection-limit)]
+        complete? (= revealed seeded-attempt-selection-limit)]
     [:section.ve-round-shell {:aria-labelledby "balanced-round-heading"}
-     [:h3#balanced-round-heading "Balanced non-adaptive rounds"]
+     [:h3#balanced-round-heading "Replay the seeded non-adaptive schedule"]
      [:p
-      "Two fixed demonstration rounds are queued. Each click reveals the next scheduled item and its sample response."]
+      "Four fixed rounds are queued for the synthetic attempt. Each click reveals the next scheduled item and its preserved response."]
      [:div.ve-round-grid
       (for [stratum (range 1 9)
             :let [seen (filterv #(= stratum (:stratum %)) selections)
@@ -190,16 +207,16 @@
                   (str "Latest: " (:item-id most-recent)
                        " · " (response-label (:response most-recent)))
                   "Latest: none")]
-         [:small (if (< next-round 3)
+         [:small (if (< next-round 5)
                    (str "Next queued: S" stratum "-R" next-round)
-                   "Two demonstration items used")]])]
+                   "Four attempt items used")]])]
      [:progress.ve-round-progress
-      {:value revealed :max balanced-selection-limit
+      {:value revealed :max seeded-attempt-selection-limit
        :aria-label "Scheduled demonstration items revealed"}]
      [:p.ve-round-status
       {:aria-live "polite"}
       (cond
-        complete? "Two complete rounds: every stratum supplied two unseen items."
+        complete? "Four complete rounds: every stratum supplied four unseen items; the correct counts are 4, 4, 3, 3, 2, 1, 1, 0."
         latest (str "Revealed " (:item-id latest) " as "
                     (response-label (:response latest))
                     ". The response did not alter any next-item queue.")
@@ -207,12 +224,12 @@
      [:div.ve-button-row
       [:button.ve-sampling-button.ve-primary
        {:type "button" :on-click reveal-next-selection! :disabled complete?}
-       (if complete? "Two rounds complete" "Reveal next scheduled item")]
+       (if complete? "Four rounds complete" "Reveal next scheduled item")]
       [:button.ve-sampling-button
        {:type "button" :on-click reset-balanced-rounds!}
        "Reset"]]
      [:p.ve-sample-note
-      "The response labels are illustrative. Schedule order is S1 through S8 in every round, independent of all answers."]]))
+      "This is the article's seeded synthetic attempt. Each stored round has one item per stratum in a seeded shuffled presentation order fixed independently of all answers."]]))
 
 (defn make-rng [seed]
   #js {:state (mod seed 2147483647)})
@@ -488,7 +505,7 @@
            [:circle {:class (if (= index (dec draw-count)) "ve-dot-latest" "ve-dot")
                      :cx x :cy y :r (if (= index (dec draw-count)) 3.8 2.4)}])
          [:text {:x 360 :y 281 :text-anchor "middle" :font-size 13 :fill "currentColor"}
-          "Total known pairs in the fixed 8,000-pair pool"]]
+          "Receptively known lemma–surface-form pairs in the fixed 8,000-pair pool"]]
         [:figcaption.ve-sample-note
          "One dot is one complete eight-stratum draw. Blue line: live central 95% interval. Red marker: live sample mean. Both stabilize as dots accumulate."]]
        [:div.ve-empty-sample
@@ -552,8 +569,8 @@
 
 (def initial-stopping-state
   (merge authoritative-stopping-settings
-         {:items-tested 40
-          :half-width 750}))
+         {:items-tested 32
+          :half-width 922.5}))
 
 (defonce stopping-state (r/atom initial-stopping-state))
 
@@ -606,15 +623,15 @@
                    soft-max? "Recommend stop: the soft cap is reached."
                    :else "Continue: assessed, but neither stopping condition is met.")]
     [:section.ve-stop-shell {:aria-labelledby "stopping-explorer-heading"}
-     [:h3#stopping-explorer-heading "Teaching-only stopping-rule explorer"]
+     [:h3#stopping-explorer-heading "Continue the seeded attempt or stop?"]
      [:div {:class (str "ve-stop-banner "
                         (if defaults? "is-default" "is-counterfactual"))}
       [:strong (if defaults?
-                 "Authoritative v1 defaults"
+                 "Authoritative Proposal 1 defaults"
                  "Counterfactual teaching settings")]
       [:span (if defaults?
                " Minimum 32 · target 10% · soft cap 96."
-               " These controls do not rewrite the article's v1 rule.")]]
+               " These controls do not rewrite Proposal 1's versioned rule.")]]
      [:div.ve-stop-grid
       [stopping-range {:id "stop-minimum" :label "Minimum items"
                        :value minimum :min 8 :max 64 :step 8 :suffix ""
@@ -629,7 +646,7 @@
                        :value items-tested :min 8 :max 160 :step 4 :suffix ""
                        :on-change #(update-stopping-setting! :items-tested %)}]
       [stopping-range {:id "stop-width" :label "Observed interval half-width"
-                       :value half-width :min 200 :max 2000 :step 50 :suffix " pairs"
+                       :value half-width :min 200 :max 2000 :step 0.5 :suffix " pairs"
                        :on-change #(update-stopping-setting! :half-width %)}]]
      [:div.ve-stop-result {:aria-live "polite"}
       [:strong decision]
@@ -644,7 +661,7 @@
      [:div.ve-button-row
       [:button.ve-sampling-button
        {:type "button" :on-click reset-stopping-settings!}
-       "Reset v1 defaults"]]
+       "Reset Proposal 1 defaults"]]
      [:p.ve-sample-note
       "Voluntary stopping remains available in every scenario and is intentionally outside this statistical recommendation."]]))
 
@@ -658,7 +675,7 @@
                        :border-radius ".5rem"
                        :padding "clamp(.75rem, 3vw, 1.25rem)"
                        :min-width 0}}
-     [:h3#simulator-heading {:style {:margin-top 0}} "One-stratum update simulator"]
+     [:h3#simulator-heading {:style {:margin-top 0}} "Replay one attempt stratum"]
      [:p {:aria-live "polite"}
       [:strong (str "Observed: " k " correct of " n ". ")]
       (str "Current posterior Beta(" alpha "," beta "); mean knowing rate "
@@ -678,7 +695,7 @@
                   :color "var(--bs-body-color, #212529)"
                   :opacity 0.75
                   :margin-bottom 0}}
-      "Keyboard: Tab to a button, then press Enter or Space. Wrong and “don't know” contribute the same stage-one likelihood, while their raw values remain distinct."]]))
+      "Keyboard: Tab to a button, then press Enter or Space. Wrong and “don't know” contribute the same Proposal 1 likelihood, while their raw values remain distinct."]]))
 
 (defn ^:export mount []
   (when-let [root (js/document.getElementById "balanced-round-simulator")]
@@ -690,6 +707,7 @@
   (when-let [root (js/document.getElementById "stopping-rule-explorer")]
     (rdom/render [stopping-rule-explorer] root)))
 
-(if (= "loading" js/document.readyState)
-  (.addEventListener js/document "DOMContentLoaded" mount)
-  (mount))
+(when (exists? js/document)
+  (if (= "loading" js/document.readyState)
+    (.addEventListener js/document "DOMContentLoaded" mount)
+    (mount)))
