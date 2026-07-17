@@ -179,6 +179,49 @@
     (is (true? (get-in drawer [1 :hidden])))
     (is (str/includes? style "prefers-reduced-motion: reduce"))))
 
+(deftest desktop-contents-rail-clears-the-article-and-viewport-edges
+  (let [style (slurp (io/file "resources" "language_learning"
+                              "vocabulary_estimation" "article_controls.css"))
+        rem-value
+        (fn [property]
+          (some-> (re-find (re-pattern
+                            (str property ":\\s*([0-9.]+)rem"))
+                           style)
+                  second
+                  Double/parseDouble))
+        content-half-width (rem-value "--article-content-half-width")
+        contents-gap (rem-value "--article-contents-gap")
+        contents-width (rem-value "--article-contents-width")
+        viewport-gap (rem-value "--article-contents-viewport-gap")
+        root-pixels 17.0]
+    (is (every? some? [content-half-width contents-gap contents-width
+                       viewport-gap])
+        "Desktop contents geometry must name its article, rail, and edge bounds")
+    (is (str/includes?
+         style
+         "left: calc(50% + var(--article-content-half-width) + var(--article-contents-gap));"))
+    (is (str/includes?
+         style
+         "width: min(var(--article-contents-width), calc(50vw - var(--article-content-half-width) - var(--article-contents-gap) - var(--article-contents-viewport-gap)));"))
+    (when (every? some? [content-half-width contents-gap contents-width
+                         viewport-gap])
+      (doseq [viewport-width [1280.0 1366.0 1440.0 1600.0]
+              :let [article-right (+ (/ viewport-width 2.0)
+                                     (* content-half-width root-pixels))
+                    rail-left (+ article-right (* contents-gap root-pixels))
+                    available-width (- (/ viewport-width 2.0)
+                                       (* (+ content-half-width contents-gap
+                                             viewport-gap)
+                                          root-pixels))
+                    rail-rendered-width (min (* contents-width root-pixels)
+                                             available-width)
+                    rail-right (+ rail-left rail-rendered-width)]]
+        (is (<= article-right rail-left)
+            (str "Contents rail overlaps the article at " viewport-width "px"))
+        (is (<= rail-right (- viewport-width (* viewport-gap root-pixels)))
+            (str "Contents rail crosses the viewport gutter at "
+                 viewport-width "px"))))))
+
 (deftest purpose-article-is-a-bounded-standalone-orientation
   (let [source (slurp (io/file authored-root "why_estimate_vocabulary.clj"))
         visible-region (second (re-find

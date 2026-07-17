@@ -284,6 +284,10 @@
 .series-item-status { display: inline-block; margin-left: .45rem; }
 .article-active-contents-shell { min-width: 0; }
 .article-active-contents {
+  --article-content-half-width: 23.5rem;
+  --article-contents-gap: 1rem;
+  --article-contents-width: 17rem;
+  --article-contents-viewport-gap: 1rem;
   margin: 1rem 0 1.25rem;
   border-left: 3px solid var(--series-accent);
   padding: .65rem .8rem;
@@ -347,10 +351,10 @@ body.article-contents-open { overflow: hidden; }
 @media (min-width: 1280px) {
   .article-active-contents {
     position: fixed;
-    left: calc(50% + 17.25rem);
+    left: calc(50% + var(--article-content-half-width) + var(--article-contents-gap));
     top: 5rem;
     z-index: 1;
-    width: 17rem;
+    width: min(var(--article-contents-width), calc(50vw - var(--article-content-half-width) - var(--article-contents-gap) - var(--article-contents-viewport-gap)));
     max-height: calc(100dvh - 6rem);
     margin: 0;
     overflow-y: auto;
