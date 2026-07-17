@@ -1,5 +1,6 @@
 (ns language-learning.vocabulary-estimation.article-equation-code-test
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [language-learning.vocabulary-estimation.article-controls :as controls]))
@@ -15,6 +16,17 @@
 
 (defn occurrence-count [pattern text]
   (count (re-seq pattern text)))
+
+(defn file-sha-256 [file]
+  (let [digest (java.security.MessageDigest/getInstance "SHA-256")]
+    (with-open [input (io/input-stream file)]
+      (let [buffer (byte-array 8192)]
+        (loop []
+          (let [read-count (.read input buffer)]
+            (when (pos? read-count)
+              (.update digest buffer 0 read-count)
+              (recur))))))
+    (format "%064x" (BigInteger. 1 (.digest digest)))))
 
 (deftest every-display-equation-has-code-provenance-and-symbol-help
   (doseq [file (authored-article-files)
@@ -114,11 +126,230 @@
     (is (str/includes? (second (first styles))
                        ".article-equation-title-icon"))))
 
+(deftest series-manifest-has-a-stable-five-article-opening
+  (is (= [:workflow :purpose :bayes :proposal-1 :proposal-2]
+         (mapv :id controls/series-manifest)))
+  (is (= [1 2 3 4 5]
+         (mapv :number controls/series-manifest)))
+  (is (every? #(every? (set (keys %))
+                       [:id :number :title :url :status])
+              controls/series-manifest))
+  (is (seq controls/series-roadmap))
+  (is (every? #(and (:id %) (:title %) (:status %) (nil? (:number %)))
+              controls/series-roadmap)))
+
+(deftest configured-controls-render-series-context-and-active-contents-data
+  (let [configured
+        (controls/install
+         {:article-id :purpose
+          :sections [{:id "learner-question"
+                      :label "The learner's question"}]
+          :technical-sections [{:id "technical-depth"
+                                :label "Technical depth"}]})
+        nodes (filter vector? (tree-seq coll? seq configured))
+        node-by-id
+        (fn [id]
+          (some #(when (and (map? (second %))
+                            (= id (:id (second %))))
+                   %)
+                nodes))
+        links (filter #(= :a (first %)) nodes)
+        current (some #(when (= "page" (get-in % [1 :aria-current])) %) nodes)
+        json-node (node-by-id "article-controls-config")
+        drawer (some #(when (= :aside#article-contents-drawer.article-contents-drawer
+                               (first %))
+                        %)
+                     nodes)
+        style (second (some #(when (= :style (first %)) %) nodes))]
+    (is (= :purpose (get-in (controls/series-context :purpose) [:current :id])))
+    (is (= :workflow (get-in (controls/series-context :purpose) [:previous :id])))
+    (is (= :bayes (get-in (controls/series-context :purpose) [:next :id])))
+    (is (some #(= "managing_brilliant_but_uneven_minds.html"
+                  (get-in % [1 :href])) links))
+    (is (some #(= "bayes_theorem_simulations.html"
+                  (get-in % [1 :href])) links))
+    (is (= "Article 2 of 5" (last current)))
+    (is (= 2 (count (filter #(= "page" (get-in % [1 :aria-current]))
+                            nodes))))
+    (is (some #(= :details.series-roadmap (first %)) nodes))
+    (is (= "application/json" (get-in json-node [1 :type])))
+    (is (str/includes? (last json-node) "\"articleId\":\"purpose\""))
+    (is (str/includes? (last json-node) "\"technical\":true"))
+    (is (= "dialog" (get-in drawer [1 :role])))
+    (is (true? (get-in drawer [1 :hidden])))
+    (is (str/includes? style "prefers-reduced-motion: reduce"))))
+
+(deftest desktop-contents-rail-clears-the-article-and-viewport-edges
+  (let [style (slurp (io/file "resources" "language_learning"
+                              "vocabulary_estimation" "article_controls.css"))
+        rem-value
+        (fn [property]
+          (some-> (re-find (re-pattern
+                            (str property ":\\s*([0-9.]+)rem"))
+                           style)
+                  second
+                  Double/parseDouble))
+        content-half-width (rem-value "--article-content-half-width")
+        contents-gap (rem-value "--article-contents-gap")
+        contents-width (rem-value "--article-contents-width")
+        viewport-gap (rem-value "--article-contents-viewport-gap")
+        root-pixels 17.0]
+    (is (every? some? [content-half-width contents-gap contents-width
+                       viewport-gap])
+        "Desktop contents geometry must name its article, rail, and edge bounds")
+    (is (str/includes?
+         style
+         "left: calc(50% + var(--article-content-half-width) + var(--article-contents-gap));"))
+    (is (str/includes?
+         style
+         "width: min(var(--article-contents-width), calc(50vw - var(--article-content-half-width) - var(--article-contents-gap) - var(--article-contents-viewport-gap)));"))
+    (when (every? some? [content-half-width contents-gap contents-width
+                         viewport-gap])
+      (doseq [viewport-width [1280.0 1366.0 1440.0 1600.0]
+              :let [article-right (+ (/ viewport-width 2.0)
+                                     (* content-half-width root-pixels))
+                    rail-left (+ article-right (* contents-gap root-pixels))
+                    available-width (- (/ viewport-width 2.0)
+                                       (* (+ content-half-width contents-gap
+                                             viewport-gap)
+                                          root-pixels))
+                    rail-rendered-width (min (* contents-width root-pixels)
+                                             available-width)
+                    rail-right (+ rail-left rail-rendered-width)]]
+        (is (<= article-right rail-left)
+            (str "Contents rail overlaps the article at " viewport-width "px"))
+        (is (<= rail-right (- viewport-width (* viewport-gap root-pixels)))
+            (str "Contents rail crosses the viewport gutter at "
+                 viewport-width "px"))))))
+
+(deftest purpose-article-is-a-bounded-standalone-orientation
+  (let [source (slurp (io/file authored-root "why_estimate_vocabulary.clj"))
+        visible-region (second (re-find
+                                #"(?s)BEGIN ALWAYS-VISIBLE(.*?)END ALWAYS-VISIBLE"
+                                source))
+        visible-prose (->> (str/split-lines visible-region)
+                           (keep #(second (re-find #"^;;\s?(.*)$" %)))
+                           (str/join " "))
+        word-count (count (re-seq #"[\p{L}\p{N}]+(?:[’'-][\p{L}\p{N}]+)*"
+                                  visible-prose))]
+    (is (<= 1500 word-count 2200)
+        (str "Always-visible Article 2 prose has " word-count " words."))
+    (doseq [contract ["Current LexiBench scorer"
+                      "Proposal 1"
+                      "stratified-beta-binomial-v1"
+                      "Proposal 2"
+                      "continuous-pair-frequency-logistic-v2"
+                      "Neither proposal is deployed"
+                      "synthetic 8,000-pair pool"
+                      "estimated receptive Polish lemmas"
+                      "lemma–surface-form pairs"
+                      "calibration"
+                      "adaptive"]]
+      (is (str/includes? source contract)
+          (str "Missing Article 2 boundary: " contract)))
+    (is (str/includes? source
+                       "(controls/install\n {:article-id :purpose"))))
+
+(deftest workflow-article-owns-the-management-method-not-the-product-purpose
+  (let [source (slurp (io/file authored-root
+                               "managing_brilliant_but_uneven_minds.clj"))]
+    (doseq [contract ["brilliant but profoundly uneven minds"
+                      "The management job"
+                      "The theory-to-algorithm cycle"
+                      "Workflow validation"
+                      "Model validation"
+                      "Software validation"
+                      "Publication validation"
+                      "human responsibility"
+                      "I have not yet read"
+                      "why_estimate_vocabulary.html"]]
+      (is (str/includes? source contract)
+          (str "Missing Article 1 management contract: " contract)))
+    (is (str/includes? source
+                       "(controls/install\n {:article-id :workflow")
+        "Article 1 must use canonical 1-based series and contents controls")
+    (is (= 1 (occurrence-count #"(?i)LexiBench" source))
+        "Article 1 should retain one short LexiBench bridge, not its purpose essay")
+    (doseq [duplicated-purpose-section
+            ["## From an expectation to an estimand"
+             "Hidden choices behind a vocabulary-size result"
+             "The current first-pass estimand is deliberately narrower"
+             "## Theory already used, and theory still to earn"]]
+      (is (not (str/includes? source duplicated-purpose-section))
+          (str "Article 2 material remains duplicated: "
+               duplicated-purpose-section)))
+    (is (not (str/includes? source "[:nav.series-toc"))
+        "Article 1 must not retain its hand-built zero-based series list")))
+(deftest bayes-article-adopts-the-series-shell-and-retains-four-simulations
+  (let [article (slurp (io/file authored-root
+                                "bayes_theorem_simulations.clj"))
+        interactive (slurp (io/file authored-root
+                                    "bayes_theorem_simulations_interactive.cljs"))]
+    (is (str/includes? article
+                       ":title \"Bayes' theorem: from uncertainty to decision\""))
+    (is (str/includes? article ":subtitle"))
+    (is (str/includes? article
+                       "(controls/install\n {:article-id :bayes"))
+    (is (not (re-find #":label \"[1-5]\." article))
+        "Ordered contents must not duplicate chapter numbers inside labels")
+    (doseq [mount-id ["globe-update-simulator"
+                      "posterior-sampling-simulator"
+                      "gaussian-height-simulator"
+                      "vocabulary-pair-simulator"]]
+      (testing mount-id
+        (is (str/includes? article mount-id))
+        (is (str/includes? interactive mount-id))))
+    (doseq [boundary ["Beta(1,1)"
+                      "100-pair"
+                      "lemma–surface-form pairs"
+                      "teaching and model-behavior demonstration"
+                      "not learner validation"
+                      "does not implement or change Proposal 1"]]
+      (is (str/includes? article boundary)
+          (str "Missing Bayes bridge boundary: " boundary)))))
+
+(deftest bayes-predictive-helper-results-stay-out-of-visible-prose
+  (let [article (slurp (io/file authored-root
+                                "bayes_theorem_simulations.clj"))]
+    (doseq [helper ["seeded-uniform!"
+                    "integer-gamma-sample!"
+                    "beta-sample!"
+                    "binomial-sample!"]]
+      (is (re-find
+           (re-pattern
+            (str "\\^\\{:kindly/hide-code true\\s+"
+                 ":kindly/kind :kind/hidden\\}\\s+"
+                 "\\(defn- " (java.util.regex.Pattern/quote helper)))
+           article)
+          (str helper " must not emit its Var into the rendered article")))))
+(deftest purpose-article-production-captures-are-immutable-and-described
+  (let [capture-root (io/file authored-root "lexibench_captures")
+        manifest-file (io/file capture-root
+                               "lexibench-captures-2026-07-17.edn")
+        captures (:captures (edn/read-string (slurp manifest-file)))
+        article (slurp (io/file authored-root "why_estimate_vocabulary.clj"))]
+    (is (= 3 (count captures)))
+    (doseq [{:keys [file sha-256 source-url capture-date product-status
+                    recapture-state alt prose-equivalent]} captures
+            :let [image-file (io/file capture-root file)]]
+      (testing file
+        (is (.exists image-file))
+        (is (= sha-256 (file-sha-256 image-file)))
+        (is (= "2026-07-17" capture-date))
+        (is (= :current-production product-status))
+        (is (str/starts-with? source-url "https://lexibench.com/"))
+        (is (not (str/blank? recapture-state)))
+        (is (<= 18 (count alt)))
+        (is (<= 30 (count prose-equivalent)))
+        (is (str/includes? article file))
+        (is (str/includes? article alt))
+        (is (str/includes? article prose-equivalent))))))
+
 (deftest every-authored-article-installs-controls-once
   (doseq [file (authored-article-files)
           :let [source (slurp file)]]
     (testing (.getPath file)
-      (is (= 1 (occurrence-count #"\(controls/install\)" source)))
+      (is (= 1 (occurrence-count #"\(controls/install(?:\)|\s)" source)))
       (is (str/includes?
            source
            "[language-learning.vocabulary-estimation.article-controls :as controls]"))
@@ -262,10 +493,10 @@
             "Theory-to-algorithm research cycle"]
            ["bayes_theorem_simulations.clj"
             "bayes_theorem_simulations_preview.png"
-            "Three Gaussian parameter-grid heatmaps"]
+            "A finite-pool posterior-predictive chart"]
            ["beta_binomial_first_pass.clj"
             "beta_binomial_first_pass_preview.png"
-            "Beta-binomial posterior density"]
+            "Proposal 1 article title and subtitle"]
            ["pair_frequency_logistic_v2_article.clj"
             "pair_frequency_logistic_v2_posterior_preview.png"
             "Cell-failure explorer"]]
@@ -293,3 +524,63 @@
     (is (str/includes?
          article
          "worst cell achieved only 92.4% coverage—462 of 500 intervals"))))
+
+(deftest proposal-1-article-follows-one-seeded-learner-attempt
+  (let [article (slurp (io/file authored-root
+                                "beta_binomial_first_pass.clj"))
+        section-anchors ["{#attempt-target}"
+                         "{#attempt-selection}"
+                         "{#attempt-responses}"
+                         "{#attempt-update}"
+                         "{#attempt-prediction}"
+                         "{#attempt-stopping}"
+                         "{#attempt-replay}"]
+        anchor-offsets (mapv #(.indexOf article %) section-anchors)]
+    (is (str/includes? article
+                       ":title \"Proposal 1: estimating known pairs\""))
+    (is (str/includes? article ":subtitle"))
+    (is (str/includes? article
+                       "(controls/install\n {:article-id :proposal-1"))
+    (is (not (str/includes? article "[:nav.series-toc"))
+        "Proposal 1 must use the canonical 1-based series navigation")
+    (is (every? #(<= 0 %) anchor-offsets)
+        "Every learner-attempt stage must have a direct anchor")
+    (is (apply < anchor-offsets)
+        "The always-visible narrative must follow selection through replay")
+    (doseq [contract ["one seeded synthetic learner attempt"
+                      "current research implementation target"
+                      "`stratified-beta-binomial-v1`"
+                      "not the scorer currently deployed at Lexibench"
+                      "receptive knowledge of lemma–surface-form pairs"
+                      "frequency rank is a proxy"
+                      "adaptive selection"
+                      "later work after item calibration"]]
+      (is (str/includes? article contract)
+          (str "Missing Proposal 1 boundary: " contract)))))
+
+(deftest proposal-1-retains-the-reference-fixture-and-all-four-interactions
+  (let [article (slurp (io/file authored-root
+                                "beta_binomial_first_pass.clj"))
+        interactive (slurp (io/file authored-root
+                                    "beta_binomial_first_pass_interactive.cljs"))]
+    (doseq [reference ["8,000-pair"
+                       "4,334"
+                       "3,404–5,249"
+                       ":algorithm-id :stratified-beta-binomial-v1"
+                       ":seed 20260712"
+                       ":response :correct"
+                       ":response :wrong"
+                       ":response :dont-know"]]
+      (is (str/includes? article reference)
+          (str "Missing Proposal 1 reference contract: " reference)))
+    (doseq [mount-id ["balanced-round-simulator"
+                      "beta-binomial-simulator"
+                      "posterior-sampling-simulator"
+                      "stopping-rule-explorer"]]
+      (testing mount-id
+        (is (str/includes? article mount-id))
+        (is (str/includes? interactive mount-id))))
+    (is (str/includes? interactive "(def seeded-attempt-selection-limit 32)")
+        "The fixed schedule must reach the 32-event reference attempt")
+    (is (str/includes? article ":raw-responses seeded-attempt-events")
+        "The replay fixture must preserve the original three-way events")))

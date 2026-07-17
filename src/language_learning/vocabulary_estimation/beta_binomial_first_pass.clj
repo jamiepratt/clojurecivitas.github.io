@@ -1,13 +1,14 @@
 ^{:kindly/hide-code true
   :kindly/options {:html/deps [:scittle :reagent]}
   :clay {:hide-info-line true
-         :title "Estimating Vocabulary Size: A Stratified Beta–Binomial First Pass"
+         :title "Proposal 1: estimating known pairs"
          :quarto {:author :jamiep
-                  :description "A learning-in-public first pass at estimating receptive vocabulary from stratified responses with a Beta–binomial model."
+                  :subtitle "One seeded non-adaptive learner attempt, from an 8,000-pair pool to a stopping decision"
+                  :description "Follow one seeded learner attempt through balanced selection, three-way response storage, stratified Beta–binomial prediction, and stopping."
                   :type :post
                   :date "2026-07-12"
                   :image "beta_binomial_first_pass_preview.png"
-                  :image-alt "Beta-binomial posterior density after twelve vocabulary responses, with Correct, Wrong, Do not know, and Reset controls."
+                  :image-alt "Proposal 1 article title and subtitle introduce one seeded non-adaptive learner attempt, with Article 4 of 5 series navigation."
                   :category :concepts
                   :tags [:bayesian-statistics :language-learning :clojure :scittle]
                   :keywords [:vocabulary-estimation :beta-binomial :posterior-predictive :stratified-sampling]}}}
@@ -42,66 +43,82 @@
  [:style (resource-text "beta_binomial_first_pass_series.css")])
 
 ^:kindly/hide-code
-(kind/hiccup
- [:nav.series-toc {:aria-labelledby "series-contents-heading"}
-  [:h2#series-contents-heading "Theory to vocabulary-estimation series"]
-  [:p "Article 0 explains the workflow; this article applies the previous Bayesian tools to one deliberately narrow measurement problem."]
-  [:ol {:start 0}
-   [:li [:a {:href "managing_brilliant_but_uneven_minds.html"}
-         "Managing brilliant but uneven minds: my theory-to-algorithm workflow"]
-    [:span.series-status "published"]]
-   [:li [:a {:href "bayes_theorem_simulations.html"}
-         "Bayes' theorem from uncertainty to decision"]
-    [:span.series-status "published"]]
-   [:li.series-current [:a {:href "beta_binomial_first_pass.html"
-                            :aria-current "page"}
-                        "Estimating vocabulary size with a simple Bayesian model"]
-    [:span.series-status "you are here"]]
-   [:li [:a {:href "pair_frequency_logistic_v2_article.html"}
-         "Does pair frequency predict learner responses?"]
-    [:span.series-status "published"]]
-   [:li "From Self-Reported CEFR to a Versioned Lemma–Form-Pair Pool"
-    [:span.series-status "planned"]]
-   [:li "From Correlated Form Pairs to Latent Lemma Knowledge"
-    [:span.series-status "planned"]]
-   [:li "Modelling Correct, Wrong, and Don't-Know Separately"
-    [:span.series-status "planned"]]
-   [:li "Calibrating Items Before IRT and Adaptive Selection"
-    [:span.series-status "planned"]]
-   [:li "When Contexts and Senses Become Identifiable"
-    [:span.series-status "planned"]]]])
+(controls/install
+ {:article-id :proposal-1
+  :sections [{:id "attempt-target" :label "Define the pair-count target"}
+             {:id "attempt-selection" :label "Select one balanced schedule"}
+             {:id "attempt-responses" :label "Preserve three-way responses"}
+             {:id "attempt-update" :label "Update each stratum"}
+             {:id "attempt-prediction" :label "Predict the finite pool"}
+             {:id "attempt-stopping" :label "Decide when to stop"}]
+  :technical-sections [{:id "attempt-replay" :label "Replay the versioned evidence"}
+                       {:id "sources" :label "Sources and further reading"}]})
+
+;; This article follows **one seeded synthetic learner attempt** from the first
+;; selection decision to the stopping decision. The learner is fictional; the
+;; fixed events make the explanation concrete and exactly replayable. Each
+;; stage answers the question that arises next in that same attempt.
+;;
+;; I call this model **Proposal 1**. Its exact algorithm ID remains
+;; `stratified-beta-binomial-v1`, with version 1 and seed 20260712. Proposal 1
+;; is the **current research implementation target** after Proposal 2 was not
+;; promoted. It is **not the scorer currently deployed at Lexibench**.
 
 ^:kindly/hide-code
-(controls/install)
+(kind/hiccup
+ [:div.ve-attempt-brief
+  [:div [:span "Attempt"] [:strong "proposal-1-seeded-attempt-2026-07-12"]]
+  [:div [:span "Pool"] [:strong "8,000 lemma–surface-form pairs"]]
+  [:div [:span "Schedule"] [:strong "4 rounds × 8 strata"]]
+  [:div [:span "Reference result"] [:strong "4,334 pairs · 95% interval 3,404–5,249"]]])
 
-;; A test result is meaningful only after its target is defined. **Measurement**
-;; is the disciplined act of connecting recorded observations to that target.
-;; It is not the same as attaching a number to a person.
-;;
-;; I am building [**Lexibench**](https://lexibench.com/), but the model in this
-;; article is a historical first-pass target scorer. It is **not a description
-;; of the scorer currently deployed at Lexibench**. Correct probability
-;; calculations cannot rescue a vague target or an unsuitable item pool.
+^:kindly/hide-code
+(def proposal-1-configuration
+  {:algorithm-id :stratified-beta-binomial-v1
+   :algorithm-version 1
+   :strata-count 8
+   :prior {:alpha 1.0 :beta 1.0}
+   :credible-mass 0.95
+   :minimum-items 32
+   :round-size 8
+   :target-half-width-ratio 0.10
+   :soft-maximum-items 96
+   :posterior-draws 50000
+   :seed 20260712})
+
+^:kindly/hide-code
+(math/code-detail
+ "code-proposal-1-configuration"
+ "The versioned Proposal 1 configuration"
+ [:div
+  [:p "The display name does not replace the machine contract. Replay requires every value below, including the seed and draw count."]
+  [:pre [:code (pr-str proposal-1-configuration)]]
+  [:p.article-code-source
+   [:a {:href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/beta_binomial_first_pass.clj"}
+    "View the complete executable article source"]]])
 
 ^:kindly/hide-code
 (kind/hiccup
  [:ol.article-chapter-map
-  [:li [:strong "Define"] [:br] "What exactly would the reported count mean?"]
-  [:li [:strong "Sample"] [:br] "How can eight balanced strata represent a fixed pool?"]
-  [:li [:strong "Update"] [:br] "How do responses change uncertainty within each stratum?"]
-  [:li [:strong "Predict"] [:br] "How do tested and untested pairs combine into a finite total?"]
-  [:li [:strong "Decide"] [:br] "When is the estimate precise enough to stop?"]
-  [:li [:strong "Reproduce"] [:br] "How do fixtures, seeds, tests, and publication gates protect the result?"]])
+  [:li [:strong "Target"] [:br] "What will this attempt estimate?"]
+  [:li [:strong "Select"] [:br] "Which 32 pairs will the learner see?"]
+  [:li [:strong "Record"] [:br] "What must be preserved before scoring?"]
+  [:li [:strong "Update"] [:br] "What did the four rounds say within each stratum?"]
+  [:li [:strong "Predict"] [:br] "What might be known among the untested pairs?"]
+  [:li [:strong "Stop"] [:br] "Is the result precise enough to end the attempt?"]
+  [:li [:strong "Replay"] [:br] "Can the same versioned evidence reproduce it?"]])
 
-;; ## 1. Define: what is being measured?
+;; ## 1. Define this attempt's target {#attempt-target}
 ;;
-;; The casual question “How many words do you know?” hides several choices.
+;; Before selecting the learner's first item, Proposal 1 needs a countable
+;; target. The casual question “How many words do you know?” hides several choices.
 ;; Does *ran* count separately from *run*? Does one meaning of *bank* count
 ;; separately from another? Which language inventory supplies the denominator?
-;; This first pass cannot answer every version of that question. It answers one
+;; Proposal 1 cannot answer every version of that question. It answers one
 ;; narrower, reproducible version.
 ;;
-;; The estimand here is:
+;; The estimated quantity is receptive knowledge of lemma–surface-form pairs
+;; in one fixed, versioned pool. In compact form, the estimand is:
 ;;
 ;; > **Receptive knowledge of lemma–surface-form pairs in a fixed, versioned
 ;; > pool.**
@@ -168,12 +185,14 @@
   [:strong "Provisional modelling choice"]
   "Provisional means chosen as a testable starting assumption, not established by the data. The pair inventory, canonical contexts, frequency strata, response mapping, prior, and stopping threshold all need empirical validation."])
 
-;; ## 2. Sample: balanced rounds from a fixed pool
+;; ## 2. Select one broad, fixed schedule {#attempt-selection}
 ;;
-;; For exposition, imagine a fixed, versioned pool split by frequency rank into eight
-;; strata with the same number of pairs. A round samples one item uniformly at
-;; random from each stratum. Later answers do not change which item is selected:
-;; **selection remains non-adaptive**.
+;; The attempt now needs a short sample that still spans the pool. Its synthetic,
+;; fixed, versioned 8,000-pair pool is split by frequency rank into eight strata
+;; of 1,000 pairs. Proposal 1 seeds and stores one shuffled queue per stratum.
+;; Each round takes the next unseen item from every queue, then shuffles those
+;; eight items for presentation. Later answers do not change any queue:
+;; **selection remains broad, balanced, and non-adaptive**.
 ;;
 ;; The full pool is the **population** about which this test makes its claim. The
 ;; much smaller set of administered items is the **sample**. Sampling is needed
@@ -201,11 +220,12 @@
 ;; that look much too easy or much too hard. That can shorten a test, but only if
 ;; the item-difficulty model is trustworthy.
 ;;
-;; I therefore want to keep selection non-adaptive while collecting response
+;; I therefore keep this attempt non-adaptive while collecting response
 ;; data from real learners. Those data should reveal the relative difficulty of
 ;; the actual questions—including context effects and departures from frequency
-;; rank—before I implement an adaptive test. Adapting sooner would risk steering
-;; the test with assumptions that have not yet been checked against learners.
+;; rank—before I implement an adaptive test. Adaptive selection is explicitly
+;; later work after item calibration; adapting sooner would steer the test with assumptions
+;; that have not yet been checked against learners.
 
 ^:kindly/hide-code
 (kind/mermaid
@@ -232,17 +252,18 @@
  [:p.ve-caption
   "Frequency rank partitions the illustrative pool; this diagram does not claim that rank is a calibrated item-difficulty scale."])
 
-;; **Frequency rank** is only a proxy: a convenient observable used in place of
+;; In this design, **frequency rank is a proxy**: a convenient observable used in place of
 ;; an unobserved quantity. Here it stands in for item difficulty, but it has not
 ;; been calibrated against learner responses. Equal-count strata balance the
 ;; sample across that proxy; they do not prove equal difficulty inside a band.
 ;;
 ;; ### Watch the fixed schedule
 ;;
-;; Select items one at a time below. Read across the eight cards: each round
-;; takes exactly one unseen item from every stratum. The sample responses are
-;; shown, but the “next item” labels advance according to the pre-existing
-;; queues, never according to those responses.
+;; Reveal the seeded attempt one item at a time below. Read across the eight
+;; cards: each of the four rounds takes exactly one unseen item from every
+;; stratum. The synthetic responses are shown, but the “next item” labels
+;; advance according to the pre-existing queues, never according to those
+;; responses.
 
 ^:kindly/hide-code
 (kind/hiccup
@@ -257,13 +278,60 @@
   [:span.article-marker "Build / Check / Decide"]
   [:p "Build: version a finite population and queue unseen items in eight frequency bands. Check: every completed round contains one item from each band, with no repeats. Decide: keep selection non-adaptive until a learner-calibrated difficulty model exists."]])
 
-;; ## 3. Record first, collapse only for v1 inference
+;; ## 3. Preserve the attempt before scoring {#attempt-responses}
 ;;
-;; The interface keeps three raw response values:
-;; `:correct`, `:wrong`, and `:dont-know`. Stage one maps a correct response to
+;; After each item, the attempt appends a complete event. The interface keeps
+;; three raw response values:
+;; `:correct`, `:wrong`, and `:dont-know`. Proposal 1 maps a correct response to
 ;; “known” and both other responses to “not known.” Keeping the raw outcomes
 ;; distinct lets a later model treat guessing, slips, and explicit uncertainty
 ;; differently without corrupting the original data.
+
+^:kindly/hide-code
+(def seeded-attempt-responses-by-stratum
+  [[:correct :correct :correct :correct]
+   [:correct :correct :correct :correct]
+   [:correct :correct :correct :wrong]
+   [:correct :correct :correct :dont-know]
+   [:correct :correct :wrong :dont-know]
+   [:correct :wrong :dont-know :wrong]
+   [:correct :dont-know :wrong :dont-know]
+   [:wrong :dont-know :wrong :dont-know]])
+
+^:kindly/hide-code
+(def seeded-stratum-orders
+  [[3 8 1 6 4 2 7 5]
+   [5 2 7 1 8 4 3 6]
+   [8 4 6 2 7 3 5 1]
+   [2 6 1 7 3 5 8 4]])
+
+^:kindly/hide-code
+(def seeded-attempt-events
+  (let [attempt-start (java.time.Instant/parse "2026-07-12T12:00:00Z")]
+    (vec
+     (for [round-index (range 4)
+           [position stratum-number]
+           (map-indexed vector (nth seeded-stratum-orders round-index))
+           :let [stratum-index (dec stratum-number)
+                 event-index (+ (* round-index 8) position)
+                 response (get-in seeded-attempt-responses-by-stratum
+                                  [stratum-index round-index])]]
+       {:attempt-id "proposal-1-seeded-attempt-2026-07-12"
+        :algorithm-id :stratified-beta-binomial-v1
+        :algorithm-version 1
+        :pool-id "pedagogical-8000-v1"
+        :pool-version "2026-07-12"
+        :item-version-id (str "item-s" stratum-number
+                              "-r" (inc round-index) "-v1")
+        :pair-id [(str "lemma-s" stratum-number "-r" (inc round-index))
+                  (str "form-s" stratum-number "-r" (inc round-index))]
+        :stratum-index stratum-index
+        :round-index round-index
+        :position position
+        :response response
+        :response-ms (+ 1800 (* 37 event-index))
+        :presented-at (.plusSeconds attempt-start (* 5 event-index))
+        :selection-probability (/ 1 (- 1000 round-index))}))))
 
 ^:kindly/hide-code
 (defn collapse-response
@@ -284,7 +352,23 @@
   {:k (reduce + (map collapse-response responses))
    :n (count responses)})
 
-;; The mapping keeps `:wrong` and `:dont-know` as different raw keys even though
+^:kindly/hide-code
+(defn attempt-events->strata
+  "Replay raw attempt events into Proposal 1's eight sufficient-statistic rows."
+  [events]
+  (mapv
+   (fn [stratum-index]
+     (let [responses (->> events
+                          (filter #(= stratum-index (:stratum-index %)))
+                          (sort-by :round-index)
+                          (mapv :response))]
+       (assoc (collapse-responses responses) :pool-size 1000)))
+   (range 8)))
+
+;; The 32 stored events contain 18 `:correct`, 7 `:wrong`, and 7 `:dont-know`
+;; values. In event-shaped prose, those are `:response :correct`,
+;; `:response :wrong`, and `:response :dont-know`. The mapping keeps `:wrong`
+;; and `:dont-know` as different raw keys even though
 ;; their stage-one likelihood contribution is the same.
 ;;
 ;; A **Bernoulli trial** has two outcomes for this model: 1 for correct and 0
@@ -297,21 +381,23 @@
  "code-raw-response-mapping"
  "Mapping raw responses without discarding the events"
  [:div
-  [:p "The pure function returns the v1 binary outcome. Unknown values fail loudly instead of silently entering the model."]
+  [:p "The pure function returns Proposal 1's binary outcome. Unknown values fail loudly instead of silently entering the model."]
   [:pre [:code "(defn collapse-response [response]\n  (case response\n    :correct 1\n    :wrong 0\n    :dont-know 0\n    (throw (ex-info \"Unknown raw response\"\n                    {:response response}))))"]]
   [:p "Storage retains the original keyword; only the input to this first inference model is collapsed."]
   [:p.article-code-source [:a {:href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/beta_binomial_first_pass.clj"} "View the executable article source"]]])
 
-;; ## 4. Update: Beta in, Beta out within one stratum
+;; ## 4. Update each stratum after four rounds {#attempt-update}
 ;;
-;; A sequence of Bernoulli trials can be summarized by a **binomial count**:
+;; With four events now stored in every stratum, Proposal 1 derives—not
+;; overwrites—a binary likelihood view. A sequence of Bernoulli trials can be
+;; summarized by a **binomial count**:
 ;; $k$ correct responses among $n$ attempts. A **Beta distribution** describes
 ;; uncertainty about a probability between 0 and 1. It has two positive shape
 ;; parameters, $\alpha$ and $\beta$. Choosing a Beta prior makes the update
 ;; **conjugate**: after binomial data, the posterior is another Beta
 ;; distribution, so no numerical approximation is needed for this step.
 ;;
-;; Let $p_s$ be the knowing rate in stratum $s$. This first pass gives every
+;; Let $p_s$ be the knowing rate in stratum $s$. Proposal 1 gives every
 ;; stratum the same prior:
 ;;
 ;; $$p_s \sim \operatorname{Beta}(1,1).$$
@@ -325,7 +411,7 @@
   ["∼" "“Is distributed as.” It describes uncertainty about p_s, not an equality to one number."]
   ["Beta(1,1)" "A Beta distribution with shape parameters α = 1 and β = 1. Its density is uniform from 0 to 1."]
   ["α, β" "The Beta distribution’s two positive shape parameters. In this Bernoulli model they update like prior correct and not-correct counts."]]
- "Beta(1,1) is the deliberately simple v1 prior; calling it uniform does not make it universally uninformative.")
+ "Beta(1,1) is Proposal 1's deliberately simple prior; calling it uniform does not make it universally uninformative.")
 
 ^:kindly/hide-code
 (math/equation-code-detail
@@ -362,7 +448,7 @@
   ["|" "“Given” or “conditional on.” Everything to its right is treated as observed information."]
   ["k" "The number of correct responses in this stratum."]
   ["n" "The total number of tested pairs in this stratum."]
-  ["n − k" "The number of tested responses treated as not known by the v1 inference model."]
+  ["n − k" "The number of tested responses treated as not known by Proposal 1's inference model."]
   ["1 + k" "The posterior α parameter: prior α = 1 plus correct responses."]
   ["1 + n − k" "The posterior β parameter: prior β = 1 plus not-correct responses."]
   ["Beta(…)" "The posterior stays in the Beta family because the Beta prior is conjugate to the Bernoulli/binomial likelihood."]]
@@ -384,8 +470,8 @@
  {:kind :source
   :label "beta_binomial_first_pass.clj — posterior-parameters"
   :href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/beta_binomial_first_pass.clj"
-  :symbols [["alpha" "The code name for the prior α shape; 1.0 in v1."]
-            ["beta" "The code name for the prior β shape; 1.0 in v1."]
+  :symbols [["alpha" "The code name for the prior α shape; 1.0 in Proposal 1."]
+            ["beta" "The code name for the prior β shape; 1.0 in Proposal 1."]
             ["k" "The correct count k added to alpha."]
             ["n" "The attempt count n; n - k is added to beta."]]}
  [:div
@@ -399,12 +485,13 @@
 ;; updated density for $p_s$. The “likelihood” is the information supplied by
 ;; the last response as a function of $p_s$; it is not itself a posterior.
 ;;
-;; ### Try the update
+;; ### Replay one stratum's update
 ;;
-;; Press **Correct**, **Wrong**, or **Don't know**. The accessible SVG compares the uniform
-;; prior, the previous posterior, the last-response likelihood, and the current
-;; posterior. Curve height is **density**, not the probability of one exact
-;; value of $p$.
+;; The recorded attempt has four responses per stratum. Use **Correct**,
+;; **Wrong**, or **Don't know** below to replay any one of those four-response
+;; paths. The accessible SVG compares the uniform prior, previous posterior,
+;; last-response likelihood, and current posterior. Curve height is **density**,
+;; not the probability of one exact value of $p$.
 
 ^:kindly/hide-code
 (kind/hiccup
@@ -422,10 +509,12 @@
    [:p "Loading the Bayesian update simulator…"]]
   [:noscript "This simulator needs JavaScript. The statistical core above remains readable without it."]])
 
-;; ## 5. Predict: from knowing rates to an untested finite pool
+;; ## 5. Predict what remains in the finite pool {#attempt-prediction}
 ;;
-;; For a stratum containing $N_s$ pairs, of which $n_s$ were tested and $k_s$
-;; were correct:
+;; Four rounds tell us only 32 of 8,000 outcomes. Proposal 1 must now predict
+;; the finite untested remainder without predicting those tested outcomes a
+;; second time. For a stratum containing $N_s$ pairs, of which $n_s$ were tested
+;; and $k_s$ were correct:
 ;;
 ;; 1. draw $p_s$ from the posterior;
 ;; 2. draw the number known among the untested pairs from
@@ -527,19 +616,19 @@
   [:p "This function selects quantiles from Monte Carlo draws. The exact reference interval below instead selects where the cumulative exact discrete probability crosses the same two cut points."]
   [:p.article-code-source [:a {:href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/beta_binomial_first_pass.clj"} "View the quantile implementation"]]])
 
-;; ## 6. Combine: a pedagogical 8,000-pair pool
+;; ## 6. Combine this attempt's eight strata
 ;;
 ;; **8,000 is an illustration, not a current CEFR or Lexibench pool size.** It
-;; consists of eight 1,000-pair strata. After four complete rounds, suppose the
-;; correct counts are `[4 4 3 3 2 1 1 0]`.
-
-^:kindly/hide-code
-(def worked-correct-counts [4 4 3 3 2 1 1 0])
+;; consists of eight 1,000-pair strata. Replaying the 32 raw events after four
+;; complete rounds gives correct counts `[4 4 3 3 2 1 1 0]`.
 
 ^:kindly/hide-code
 (def worked-strata
-  (mapv (fn [k] {:pool-size 1000 :k k :n 4})
-        worked-correct-counts))
+  (attempt-events->strata seeded-attempt-events))
+
+^:kindly/hide-code
+(def worked-correct-counts
+  (mapv :k worked-strata))
 
 ^:kindly/hide-code
 (defn analytic-stratum-mean
@@ -563,7 +652,7 @@
   (long (reduce + (map analytic-stratum-mean worked-strata))))
 
 ;; The **mean** is the probability-weighted average of all possible totals under
-;; the model. It is **4,334 pairs** here. Row by row:
+;; the model. For this attempt it is **4,334 pairs**. Row by row:
 
 ^:kindly/hide-code
 (kind/hiccup
@@ -638,8 +727,9 @@
 ;;
 ;; Reader-facing, I would report:
 ;;
-;; > **About 4,330 known pairs, with a 95% credible interval of roughly
-;; > 3,400–5,250, conditional on this model and fixed pool.**
+;; > **Estimated receptive knowledge: about 4,330 lemma–surface-form pairs in
+;; > synthetic pool `pedagogical-8000-v1`, version `2026-07-12`, with a 95%
+;; > credible interval of roughly 3,400–5,250.**
 ;;
 ;; “95% credible interval” is not “95% certainty that every modelling choice is
 ;; right.” It describes posterior uncertainty conditional on the specified
@@ -736,9 +826,12 @@
 ;; Small differences are Monte Carlo error. The verification tolerance used for
 ;; this draft is ±20 pairs for the mean and ±40 pairs for each endpoint.
 ;;
-;; ## 7. Decide: when should the test stop?
+;; ## 7. Decide whether this attempt should stop {#attempt-stopping}
 ;;
-;; The stopping rule is also provisional:
+;; At the first eligible check, the attempt has 32 items and the exact reference
+;; interval 3,404–5,249. Its half-width is 922.5 pairs, wider than the target of
+;; 800, so Proposal 1 recommends **continue**. The learner may still stop
+;; voluntarily and receive the qualified result. The rule is provisional:
 ;;
 ;; - ask at least 32 items (four complete rounds);
 ;; - reassess only after another complete eight-item round;
@@ -775,7 +868,7 @@
 ^:kindly/hide-code
 (math/code-detail
  "code-stopping-decision"
- "Applying the v1 stopping decision"
+ "Applying the Proposal 1 stopping decision"
  [:div
   [:p "Assessment occurs only at complete eight-item rounds and only after the 32-item minimum. The precision target and soft maximum are separate reasons to recommend stopping."]
   [:pre [:code "(let [complete-round? (zero? (mod items-tested 8))\n      assess? (and complete-round?\n                   (>= items-tested 32))\n      half-width (/ (- upper lower) 2.0)\n      target? (and assess?\n                   (<= half-width (* 0.10 pool-size)))\n      soft-max? (and assess?\n                     (>= items-tested 96))]\n  {:stop? (or voluntary? target? soft-max?)})"]]
@@ -812,13 +905,14 @@
        [:td (format "%,.0f" half-width)]
        [:td (if stop? "Yes" "No")]])]]])
 
-;; At 36 items the interval happens to be narrow enough, but the function does
+;; The 32-item row is this seeded attempt's first stopping decision. At 36 items
+;; the interval happens to be narrow enough, but the function does
 ;; not assess it: 36 is not the end of an eight-item round. At 96, the soft
 ;; maximum recommends stopping even when the width target is missed.
 
 ;; ### Explore the rule without rewriting history
 ;;
-;; The controls below begin at the authoritative v1 defaults: minimum 32,
+;; The controls below begin at the authoritative Proposal 1 defaults: minimum 32,
 ;; interval half-width target 10% of the pool, and soft cap 96. Changing those
 ;; three values creates a **counterfactual teaching scenario** only. It does not
 ;; alter this article's recorded model, examples, assertions, or scorer.
@@ -828,7 +922,7 @@
  [:div.ve-simulator
   [:div#stopping-rule-explorer
    [:p "Loading the teaching-only stopping-rule explorer…"]]
-  [:noscript "This explorer needs JavaScript. The authoritative v1 defaults and stopping table above remain available."]])
+  [:noscript "This explorer needs JavaScript. The authoritative Proposal 1 defaults and stopping table above remain available."]])
 
 ^:kindly/hide-code
 (kind/hiccup
@@ -836,9 +930,10 @@
   [:span.article-marker "Build / Check / Decide"]
   [:p "Build: compute the exact finite-pool distribution and a qualified estimate. Check: reproduce it with a seeded simulation and inspect stopping only at round boundaries. Decide: stop for voluntary choice, adequate precision after the minimum, or the soft maximum—without changing the rule after seeing one learner's result."]])
 ;;
-;; ## 8. Reproduce: protect this model's evidence
+;; ## 8. Replay the versioned attempt {#attempt-replay}
 ;;
-;; A trustworthy calculation needs a boundary between the mathematical model
+;; The learner story ends only when another implementation can replay it. A
+;; trustworthy calculation needs a boundary between the mathematical model
 ;; and software that reads files, draws charts, or responds to clicks. A **pure
 ;; function** returns an output determined only by its inputs. A **side effect**
 ;; changes or observes something outside that return value, such as a database,
@@ -858,24 +953,30 @@
 (kind/hiccup
  [:div.ve-callout
   [:strong "The wider workflow lives in Article 0"]
-  [:p "This section keeps the evidence specific to v1: pure scoring, immutable fixtures and response events, seeded replay, and CLJ/CLJS parity. "
+  [:p "This section keeps the evidence specific to Proposal 1: pure scoring, immutable fixtures and response events, seeded replay, and CLJ/CLJS parity. "
    [:a {:href "managing_brilliant_but_uneven_minds.html#the-research-cycle-in-public"}
     "Article 0 explains the complete theory-to-algorithm cycle and its separate model, software, and publication gates."]]])
 
 ^:kindly/hide-code
 (def worked-fixture
   {:fixture-version "beta-binomial-v1-worked-2026-07-12"
-   :algorithm-version "beta-binomial-v1"
+   :algorithm-id :stratified-beta-binomial-v1
+   :algorithm-version 1
    :pool-id "pedagogical-8000-v1"
+   :pool-version "2026-07-12"
    :seed 20260712
+   :raw-responses seeded-attempt-events
    :strata worked-strata})
 
 ^:kindly/hide-code
 (defn score-worked-fixture
   "Deterministic scoring shell for the versioned pedagogical fixture."
-  [{:keys [seed strata]}]
-  {:analytic-mean (long (reduce + (map analytic-stratum-mean strata)))
-   :one-seeded-draw (posterior-predictive-total seed strata)})
+  [{:keys [seed strata raw-responses]}]
+  (let [replayed-strata (if (seq raw-responses)
+                          (attempt-events->strata raw-responses)
+                          strata)]
+    {:analytic-mean (long (reduce + (map analytic-stratum-mean replayed-strata)))
+     :one-seeded-draw (posterior-predictive-total seed replayed-strata)}))
 
 ^:kindly/hide-code
 (math/code-detail
@@ -883,7 +984,7 @@
  "Keeping a pure scoring boundary and deterministic fixture"
  [:div
   [:p "All changing inputs are explicit data. The function creates its seeded generator internally, returns a value, and neither reads nor writes application storage."]
-  [:pre [:code "(def worked-fixture\n  {:fixture-version \"beta-binomial-v1-worked-2026-07-12\"\n   :algorithm-version \"beta-binomial-v1\"\n   :pool-id \"pedagogical-8000-v1\"\n   :seed 20260712\n   :strata worked-strata})\n\n(defn score-worked-fixture [{:keys [seed strata]}]\n  {:analytic-mean\n   (long (reduce + (map analytic-stratum-mean strata)))\n   :one-seeded-draw\n   (posterior-predictive-total seed strata)})"]]
+  [:pre [:code "(def worked-fixture\n  {:fixture-version \"beta-binomial-v1-worked-2026-07-12\"\n   :algorithm-id :stratified-beta-binomial-v1\n   :algorithm-version 1\n   :pool-id \"pedagogical-8000-v1\"\n   :pool-version \"2026-07-12\"\n   :seed 20260712\n   :raw-responses seeded-attempt-events})\n\n(defn score-worked-fixture [{:keys [seed raw-responses]}]\n  (let [strata (attempt-events->strata raw-responses)]\n    {:analytic-mean\n     (long (reduce + (map analytic-stratum-mean strata)))\n     :one-seeded-draw\n     (posterior-predictive-total seed strata)}))"]]
   [:p "Calling this function twice with the same fixture must return equal maps; the final regression checks enforce that deterministic replay."]
   [:p.article-code-source [:a {:href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/beta_binomial_first_pass.clj"} "View the fixture, scorer, and assertions"]]])
 
@@ -915,9 +1016,9 @@
 (kind/hiccup
  [:div.article-recap
   [:span.article-marker "Checkpoint"]
-  [:p "The v1 model now has a precise estimand, balanced non-adaptive sampling, lossless raw events, eight conjugate Beta updates, finite-pool posterior prediction, an exact qualified interval, seeded numerical checks, and an explicit stopping rule. Every modelling choice remains provisional. The next article tests one refinement—continuous pair frequency—without silently rewriting this checkpoint."]])
+  [:p "Proposal 1 now has a precise pair-count estimand, balanced non-adaptive sampling, lossless raw events, eight conjugate Beta updates, finite-pool posterior prediction, an exact qualified interval, seeded numerical checks, and an explicit stopping rule. It remains the current research implementation target, and every modelling choice remains provisional. The next article tests one refinement—continuous pair frequency—without silently rewriting this checkpoint."]])
 ;;
-;; ## Sources and further reading
+;; ## Sources and further reading {#sources}
 ;;
 ;; - Gelman et al., [*Bayesian Data Analysis*](https://sites.stat.columbia.edu/gelman/book/), for posterior and posterior-predictive reasoning.
 ;; - [Fastmath random-distribution documentation](https://generateme.github.io/fastmath/fastmath.random.html), for the executable Beta, binomial, sampling, and inverse-CDF interfaces used here.
@@ -934,11 +1035,38 @@
 ^:kindly/hide-code
 (def regression-status
   (do
+    (assert (= 32 (count seeded-attempt-events)))
+    (assert (= [4 4 3 3 2 1 1 0] worked-correct-counts))
+    (assert (= {:correct 18 :wrong 7 :dont-know 7}
+               (frequencies (map :response seeded-attempt-events))))
+    (assert (= 32 (count (distinct (map :item-version-id
+                                        seeded-attempt-events)))))
+    (assert (every? #(instance? java.time.Instant (:presented-at %))
+                    seeded-attempt-events))
+    (assert (= seeded-stratum-orders
+               (mapv (fn [round-index]
+                       (mapv (comp inc :stratum-index)
+                             (filter #(= round-index (:round-index %))
+                                     seeded-attempt-events)))
+                     (range 4))))
+    (assert (every? #(= :stratified-beta-binomial-v1 (:algorithm-id %))
+                    seeded-attempt-events))
+    (assert (= worked-strata
+               (attempt-events->strata (:raw-responses worked-fixture))))
     (assert (= {:alpha 5.0 :beta 1.0} (posterior-parameters 4 4)))
     (assert (= 0 (collapse-response :wrong)
                (collapse-response :dont-know)))
     (assert (not= :wrong :dont-know))
     (assert (= 4334 worked-analytic-mean))
+    (assert (= {:complete-round? true
+                :assess? true
+                :half-width 922.5
+                :target? false
+                :soft-max? false
+                :stop? false}
+               (stopping-check {:items-tested 32
+                                :interval [3404 5249]
+                                :pool-size 8000})))
     (assert (every? #(not (:assess? (stopping-check
                                      {:items-tested %
                                       :interval [0 8000]
