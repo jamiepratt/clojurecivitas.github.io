@@ -72,6 +72,19 @@
       (is (str/includes? interactive contract)
           (str "Missing posterior simulator contract: " contract)))))
 
+(deftest v2-curve-anchors-have-visible-probability-labels
+  (let [interactive
+        (slurp (io/file authored-root
+                        "pair_frequency_logistic_v2_interactive.cljs"))]
+    (doseq [label [":visible-label \"10%\""
+                   ":visible-label \"50%\""
+                   ":visible-label \"90%\""]]
+      (is (str/includes? interactive label)
+          (str "Missing visible curve label: " label)))
+    (is (str/includes? interactive ":text.pf-curve-anchor-label"))
+    (is (not (str/includes? interactive "[:title label]"))
+        "Curve anchors must not rely on hover-only title text")))
+
 (deftest completed-seeded-quiz-shows-joint-and-marginal-posteriors
   (let [interactive
         (slurp (io/file authored-root
@@ -189,3 +202,94 @@
     (is (str/includes? interactive ":v2-probability"))
     (is (str/includes? interactive
                        "(mount! \"pair-frequency-model-scenarios\""))))
+
+(deftest v2-article-explains-formal-simulation-scope
+  (let [article (slurp (io/file authored-root
+                                "pair_frequency_logistic_v2_article.clj"))]
+    (doseq [explanation ["Simulation scope and vocabulary"
+                         "illustrative seeded draws"
+                         "**Learner-pool**"
+                         "**Scenario family**"
+                         "**Cell**"
+                         "**Replicate**"
+                         "six scenario families"
+                         "105 unique cells"
+                         "232,500"]]
+      (is (str/includes? article explanation)
+          (str "Missing simulation-scope explanation: " explanation)))
+    (is (= 1 (count (re-seq #"Simulation phases and replicate counts"
+                            article)))
+        "The formal simulation-scope table should appear exactly once")))
+
+(deftest v2-article-makes-cellwise-gate-failures-inspectable
+  (let [article (slurp (io/file authored-root
+                                "pair_frequency_logistic_v2_article.clj"))
+        interactive (slurp (io/file authored-root
+                                    "pair_frequency_logistic_v2_interactive.cljs"))]
+    (doseq [explanation ["See which supported cells broke the gate"
+                         "How to read the failure explorer"
+                         "How representative are the featured failures?"
+                         "What patterns do the failed cells share?"
+                         "relative-baseline effect"
+                         "No monotonic coverage signal"
+                         "balanced 5 × 3 × 3 factorial grid"
+                         "about 1.1 percentage points"
+                         "one replay-diagnostic simulation cell and"
+                         "one deterministic illustrative learner-pool"
+                         "does not rerun the 22,500 learner-pools"]]
+      (is (str/includes? article explanation)
+          (str "Missing cell-failure explanation: " explanation)))
+    (doseq [contract ["pair-frequency-failure-data"
+                      "failure-metric-plot"
+                      "Worst coverage"
+                      "Typical undercoverage"
+                      "Worst relative MAE"
+                      "failure-pattern-summary"
+                      "True simulation settings"
+                      "not fitted learner estimates"
+                      "load-failure-case!"
+                      "failure-case-explorer"
+                      "draw-supported-latent-outcomes"
+                      "(mount! \"pair-frequency-failure-cases\""]]
+      (is (or (str/includes? article contract)
+              (str/includes? interactive contract))
+          (str "Missing cell-failure explorer contract: " contract)))))
+
+(deftest every-series-article-declares-a-social-preview-image
+  (doseq [[article-name preview-name alt-fragment]
+          [["managing_brilliant_but_uneven_minds.clj"
+            "managing_brilliant_but_uneven_minds_preview.png"
+            "Theory-to-algorithm research cycle"]
+           ["bayes_theorem_simulations.clj"
+            "bayes_theorem_simulations_preview.png"
+            "Three Gaussian parameter-grid heatmaps"]
+           ["beta_binomial_first_pass.clj"
+            "beta_binomial_first_pass_preview.png"
+            "Beta-binomial posterior density"]
+           ["pair_frequency_logistic_v2_article.clj"
+            "pair_frequency_logistic_v2_posterior_preview.png"
+            "Cell-failure explorer"]]
+          :let [article (slurp (io/file authored-root article-name))
+                preview (io/file authored-root preview-name)]]
+    (testing article-name
+      (is (str/includes? article (str ":image \"" preview-name "\"")))
+      (is (str/includes? article (str ":image-alt \"" alt-fragment)))
+      (is (.isFile preview))
+      (when (.isFile preview)
+        (let [image (javax.imageio.ImageIO/read preview)]
+          (is (some? image))
+          (when image
+            (is (= 1200 (.getWidth image)))
+            (is (= 630 (.getHeight image)))))
+        (is (> (.length preview) 50000)
+            "The preview should be a substantive screenshot, not a placeholder")))))
+
+(deftest v2-gate-result-explains-coverage-in-place
+  (let [article (slurp (io/file authored-root
+                                "pair_frequency_logistic_v2_article.clj"))]
+    (is (str/includes?
+         article
+         "a reported interval **covers** one simulation replicate"))
+    (is (str/includes?
+         article
+         "worst cell achieved only 92.4% coverage—462 of 500 intervals"))))

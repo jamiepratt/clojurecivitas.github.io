@@ -8,6 +8,8 @@
                   :description "Why managing fast, uneven AI agents requires explicit assumptions, executable research, and independent validation gates."
                   :type :post
                   :date "2026-07-15"
+                  :image "managing_brilliant_but_uneven_minds_preview.png"
+                  :image-alt "Theory-to-algorithm research cycle above separate model, software, and publication validation cards."
                   :category :concepts
                   :tags [:ai :research-workflow :language-learning :clojure]
                   :keywords [:coding-agents :theory-to-algorithm :executable-research :model-validation]}}}

@@ -5,12 +5,15 @@
                   :description "A provisional continuous difficulty model before item calibration—and the simulation gate it failed."
                   :type :post
                   :date "2026-07-13"
+                  :image "pair_frequency_logistic_v2_posterior_preview.png"
+                  :image-alt "Cell-failure explorer showing four tuning-cell cases, coverage and relative-MAE dot plots, and summary metrics for the worst-coverage case."
                   :category :concepts
                   :tags [:bayesian-statistics :language-learning :clojure :simulation]
                   :keywords [:vocabulary-estimation :logistic-regression :pair-frequency :model-validation]}}}
 
 (ns language-learning.vocabulary-estimation.pair-frequency-logistic-v2-article
   (:require [clojure.edn :as edn]
+            [clojure.data.json :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [language-learning.vocabulary-estimation.article-controls :as controls]
@@ -792,16 +795,6 @@
 ;; ## 5. Simulate: a scorer before trusting it {#step-5-simulate}
 ;;
 ;; Simulation makes the hidden truth available because the program creates it.
-;; A **scenario** states how knowledge and measurement are generated. A
-;; **cell** is one exact combination of scenario settings. A **replicate** is
-;; one newly drawn learner-pool under that cell. The **nominal target** is the
-;; cell's intended expected known total before random draws; **realised truth**
-;; is the actual count of the 8,000 latent binary outcomes in one replicate.
-;; They are close on average but need not be equal.
-;;
-;; V1 and v2 receive the same schedule and response prefix in each replicate.
-;; This is a **paired comparison**: differences between scorers are not mixed
-;; with different simulated learners or questions.
 
 ^:kindly/hide-code
 (def tuning-result
@@ -830,6 +823,123 @@
                  (:rules tuning-result))))
 
 ^:kindly/hide-code
+(def tuning-cell-diagnostic
+  (edn/read-string
+   (slurp (io/resource
+           "language_learning/vocabulary_estimation/pair_frequency_logistic_v2_tuning_cells.edn"))))
+
+^:kindly/hide-code
+(defn diagnostic-cell-id [{:keys [expected-ratio width residual-sd]}]
+  (format "ability-%02d-width-%s-residual-%s"
+          (long (* 100 expected-ratio)) width residual-sd))
+
+^:kindly/hide-code
+(def failure-cells
+  (mapv
+   (fn [index {:keys [cell v1 v2 mae-ratio]}]
+     {:id (diagnostic-cell-id cell)
+      :expectedRatio (:expected-ratio cell)
+      :width (:width cell)
+      :residualSd (:residual-sd cell)
+      :coverage (:coverage v2)
+      :v1Mae (:mae v1)
+      :v2Mae (:mae v2)
+      :maeRatio mae-ratio
+      :bias (:bias v2)
+      :meanItems (:mean-items v2)
+      :medianItems (:median-items v2)
+      :visualSeed (+ 2026072100 index)})
+   (range)
+   (:cells tuning-cell-diagnostic)))
+
+^:kindly/hide-code
+(def coverage-failure-cells
+  (vec (sort-by :coverage (filter #(< (:coverage %) 0.94) failure-cells))))
+
+^:kindly/hide-code
+(def mae-failure-cells
+  (vec (sort-by :maeRatio (filter #(> (:maeRatio %) 1.05) failure-cells))))
+
+^:kindly/hide-code
+(defn middle-cell [cells]
+  (nth cells (quot (count cells) 2)))
+
+^:kindly/hide-code
+(def featured-failure-cells
+  (second
+   (reduce
+    (fn [[seen featured] [label cell]]
+      (if (or (nil? cell) (contains? seen (:id cell)))
+        [seen featured]
+        [(conj seen (:id cell))
+         (conj featured {:id (:id cell) :label label})]))
+    [#{} []]
+    [["Worst coverage" (first coverage-failure-cells)]
+     ["Typical undercoverage" (middle-cell coverage-failure-cells)]
+     ["Worst relative MAE" (last mae-failure-cells)]
+     ["Typical MAE regression" (middle-cell mae-failure-cells)]])))
+
+^:kindly/hide-code
+(def failure-explorer-data
+  {:cells failure-cells
+   :featured featured-failure-cells
+   :coverageThreshold 0.94
+   :maeRatioThreshold 1.05
+   :replicatesPerCell (:replicates-per-cell tuning-cell-diagnostic)
+   :coverageFailureCount (count coverage-failure-cells)
+   :maeFailureCount (count mae-failure-cells)
+   :bothFailureCount
+   (count (filter #(and (< (:coverage %) 0.94)
+                        (> (:maeRatio %) 1.05))
+                  failure-cells))})
+
+^:kindly/hide-code
+(defn replay-mean [metric cells]
+  (/ (reduce + 0.0 (map metric cells)) (count cells)))
+
+^:kindly/hide-code
+(defn replay-cell-summary [cells]
+  {:cellCount (count cells)
+   :coverageFailureCount (count (filter #(< (:coverage %) 0.94) cells))
+   :maeFailureCount (count (filter #(> (:maeRatio %) 1.05) cells))
+   :meanCoverage (replay-mean :coverage cells)
+   :meanV1Mae (replay-mean :v1Mae cells)
+   :meanV2Mae (replay-mean :v2Mae cells)
+   :meanMaeRatio (replay-mean :maeRatio cells)})
+
+^:kindly/hide-code
+(defn replay-summaries-by [metric]
+  (into (sorted-map)
+        (for [[setting cells] (group-by metric failure-cells)]
+          [setting (replay-cell-summary cells)])))
+
+^:kindly/hide-code
+(def failure-pattern-summary
+  {:byWidth (replay-summaries-by :width)
+   :byKnownFraction (replay-summaries-by :expectedRatio)
+   :byResidualSd (replay-summaries-by :residualSd)
+   :median64
+   {:coverageFailures
+    (count (filter #(and (< (:coverage %) 0.94)
+                         (= 64 (:medianItems %)))
+                   failure-cells))
+    :coveragePasses
+    (count (filter #(and (>= (:coverage %) 0.94)
+                         (= 64 (:medianItems %)))
+                   failure-cells))
+    :maeFailures
+    (count (filter #(and (> (:maeRatio %) 1.05)
+                         (= 64 (:medianItems %)))
+                   failure-cells))
+    :maePasses
+    (count (filter #(and (<= (:maeRatio %) 1.05)
+                         (= 64 (:medianItems %)))
+                   failure-cells))}})
+
+^:kindly/hide-code
+(def failure-explorer-json (json/write-str failure-explorer-data))
+
+^:kindly/hide-code
 (def simulation-phases
   [{:phase "Rule tuning"
     :cells (:supported-cell-count tuning-result)
@@ -849,6 +959,83 @@
     :learners (* (:stress-cell-count stress-result)
                  (:replicates-per-cell stress-result))
     :rules 1}])
+
+;; ### Simulation scope and vocabulary
+;;
+;; The three browser panels above are **illustrative seeded draws**, not rows
+;; from the frozen validation artifacts. Each panel fits v1 and v2 to one
+;; balanced 64-item sample from one generated 8,000-pair learner-pool. The
+;; smooth panel and the 10%-false-negative panel deliberately share the same
+;; latent pool, so their difference isolates measurement error rather than a
+;; different learner. The smooth panel has the settings of one supported cell:
+;; 50% nominal knowledge, width 1.5, and residual SD 0. The mixture and
+;; false-negative panels represent two of the stress families.
+;;
+;; The formal simulation uses these terms:
+;;
+;; - **Learner-pool**: one complete simulated learner state over the fixed 8,000
+;;   pair-frequency values. It contains 8,000 newly drawn known-or-unknown
+;;   outcomes, their realised total, and the response stream revealed by the
+;;   balanced schedule.
+;; - **Scenario family**: one rule for generating latent knowledge and measured
+;;   responses, such as a supported logistic curve, a non-logistic mixture, or
+;;   false negatives.
+;; - **Cell**: one exact combination of settings within a scenario family. For
+;;   example, 50% nominal knowledge × width 1.5 × residual SD 0 is one supported
+;;   cell.
+;; - **Replicate**: one independently drawn learner-pool under one cell. A new
+;;   replicate redraws all 8,000 latent outcomes and its response stream.
+;; - **Paired scorer comparison**: v1 and v2 receive the same schedule and
+;;   response prefix within a replicate, so scorer differences are not mixed
+;;   with different simulated learners or questions.
+;;
+;; The tested cells came from **six scenario families**:
+;;
+;; - **Supported logistic:** 45 cells cross five nominal known fractions (10%,
+;;   30%, 50%, 70%, 90%), three curve widths (0.75, 1.5, 3.0 SD), and three
+;;   independent-pair residual SDs (0, 0.5, 1.0 log-odds).
+;; - **Non-logistic mixture:** 5 stress cells, one at each nominal fraction.
+;; - **Frequency-related residual:** 10 stress cells, crossing five fractions
+;;   with two systematic slopes.
+;; - **False positive:** 15 stress cells, crossing five fractions with 2%, 5%,
+;;   and 10% error rates.
+;; - **False negative:** 15 stress cells with the same fraction × rate crossing.
+;; - **Rank-increasing measurement error:** 15 stress cells with error rising
+;;   toward rarer pairs at maximum rates of 2%, 5%, or 10%.
+;;
+;; That is 45 supported plus 60 stress cells: **105 unique cells**. The 45
+;; supported cells were run once for tuning and again with fresh draws and a
+;; different seed for held-out diagnosis. They therefore contribute 90 of the
+;; 150 cell-phases below without becoming 90 distinct cell definitions.
+
+^:kindly/hide-code
+(kind/hiccup
+ [:div.pf-table-wrap
+  [:table.pf-table
+   [:caption.pf-sr-only "Simulation phases and replicate counts"]
+   [:thead
+    [:tr [:th {:scope "col"} "Scope"]
+     [:th {:scope "col"} "Cells"]
+     [:th {:scope "col"} "Replicates / cell"]
+     [:th {:scope "col"} "Learner-pools"]]]
+   [:tbody
+    (for [{:keys [phase cells replicates learners]} simulation-phases]
+      [:tr {:key phase}
+       [:th {:scope "row"} phase]
+       [:td cells]
+       [:td (format "%,d" replicates)]
+       [:td (format "%,d" learners)]])
+    [:tr
+     [:th {:scope "row"} "Total"]
+     [:td "150 cell-phases"]
+     [:td "—"]
+     [:td (format "%,d" (reduce + (map :learners simulation-phases)))]]]]])
+
+;; The 500-replicate tuning run generated 22,500 independent learner-pools—not
+;; 2.25 million. The same 22,500 response streams were rescored under all 100
+;; stopping rules. Across all three phases, the immutable artifacts record
+;; **232,500 replicates**, each representing one independently generated
+;; learner-pool. The phase-specific seeds and their separation are shown below.
 
 ^:kindly/hide-code
 (def gate-inspector-data
@@ -1170,37 +1357,6 @@
    "Separate data and seeds preserve the direction of learning: tuning may choose what to inspect; diagnostics never rewrite tuning."]])
 
 ^:kindly/hide-code
-(kind/hiccup
- [:div.pf-table-wrap
-  [:table.pf-table
-   [:caption.pf-sr-only "Simulation phases and replicate counts"]
-   [:thead
-    [:tr [:th {:scope "col"} "Phase"]
-     [:th {:scope "col"} "Cells"]
-     [:th {:scope "col"} "Replicates / cell"]
-     [:th {:scope "col"} "Simulated learner-pools"]
-     [:th {:scope "col"} "Rules scored"]]]
-   [:tbody
-    (for [{:keys [phase cells replicates learners rules]} simulation-phases]
-      [:tr {:key phase}
-       [:th {:scope "row"} phase]
-       [:td cells]
-       [:td (format "%,d" replicates)]
-       [:td (format "%,d" learners)]
-       [:td rules]])
-    [:tr
-     [:th {:scope "row"} "Total"]
-     [:td "150 cell-phases"]
-     [:td "—"]
-     [:td (format "%,d" (reduce + (map :learners simulation-phases)))]
-     [:td "—"]]]]])
-
-;; The 500-replicate tuning run generated 22,500 independent learner-pool
-;; realisations—not 2.25 million. The same 22,500 response streams were rescored
-;; under all 100 rules. Across the three phases the immutable artifacts record
-;; 232,500 simulated learner-pools.
-
-^:kindly/hide-code
 (math/code-detail
  "code-read-edn-artifacts"
  "Reading immutable simulation-result artifacts at render time"
@@ -1346,12 +1502,19 @@
 
 ;; ### Gate result: no rule passed
 ;;
+;; Here, a reported interval **covers** one simulation replicate when it contains
+;; that simulated learner's realised true 8,000-pair total. **Coverage** is the
+;; percentage of replicates whose intervals do so. Aggregate coverage pools all
+;; tested cells; worst-cell coverage is the percentage in the single weakest
+;; ability × width × residual-or-error cell.
+;;
 ;; No rule satisfied all five checks. The rule with the best worst-cell
 ;; coverage started at 48 items, targeted a 7.5%-of-pool half-width, and capped
 ;; at 64. In tuning it achieved 95.48% aggregate coverage and MAE 253.0, but its
-;; worst cell covered only 92.4%, its worst cell's MAE was 22.0% above v1, and
-;; its median length was 64 rather than v1's 40. It was therefore not eligible
-;; for promotion.
+;; worst cell achieved only 92.4% coverage—462 of 500 intervals contained the
+;; simulated truth. Its worst cell's MAE was 22.0% above v1, and its median
+;; length was 64 rather than v1's 40. It was therefore not eligible for
+;; promotion.
 
 ^:kindly/hide-code
 (math/code-detail
@@ -1369,6 +1532,191 @@
   [:p.article-code-source
    [:a {:href "https://github.com/ClojureCivitas/clojurecivitas.github.io/blob/main/src/language_learning/vocabulary_estimation/pair_frequency_logistic_v2_gate.clj"}
     "View passing-rule selection and its tests"]]])
+
+;; ### See which supported cells broke the gate
+;;
+;; The original frozen artifact preserved the cellwise extrema but not the v2
+;; summary aligned to each named cell. The explorer therefore uses a later
+;; full 100-rule replay with the same fixture, seed, rule grid, and 500
+;; replicates per cell. It reached the same non-promotion decision, but its
+;; extrema were close rather than bit-identical to the historical artifact.
+;; These are replay-diagnostic cells, not retroactively asserted identities for
+;; the historical minima.
+;;
+;; Within that replay, the strong aggregate result still hides uneven
+;; performance across the 45 supported ability × width × residual cells. The
+;; explorer keeps every cell in view, while four buttons select informative
+;; failures: the extrema and middle-ranked failures under the two cellwise
+;; requirements. This makes the examples inspectable without implying that a
+;; hand-picked worst case is typical of the whole grid.
+
+^:kindly/hide-code
+(kind/hiccup
+ [:div.pf-lab
+  [:div#pair-frequency-failure-cases
+   [:p "Loading the cell-failure explorer…"]]
+  [:noscript "This cell explorer needs JavaScript."]
+  [:script#pair-frequency-failure-data {:type "application/json"}
+   failure-explorer-json]])
+;;
+;; #### How to read the failure explorer
+;;
+;; The values on each selector are **true simulation settings, not parameters
+;; inferred for the learner**: nominal known fraction, the generating curve's
+;; 10%–90% width in standardized-frequency SDs, and pair-level residual SD in
+;; log-odds. The inferred outputs are the v1 and v2 predicted totals shown in
+;; the selected-cell detail below.
+;;
+;; - **All-cell plots:** each dot is one replay-diagnostic simulation cell and
+;;   therefore 500 independently generated learner-pools. Red dots fail the
+;;   vertical gate line; the ring marks the currently selected cell.
+;; - **Cell cards:** coverage, MAE, bias, and quiz length summarize all 500
+;;   replicates in that cell. They are the evidence used by the gate, not values
+;;   from the single picture below.
+;; - **Three visual lanes:** the latent strip, 64 observed responses, and fitted
+;;   v1/v2 lines show one deterministic illustrative learner-pool generated
+;;   under the selected cell's settings. It helps explain the mechanism, but it
+;;   is not treated as another validation replicate.
+;;
+;; The crucial visual pattern is a compression problem. Sixty-four sparse
+;; responses must identify one smooth curve, even when independent pair-level
+;; residuals make the realised latent strip locally rougher than that curve.
+;; V2 can predict responses well on average while its whole-pool interval is
+;; too confident or its count is less accurate in a particular cell. That is
+;; why response log score and aggregate MAE cannot substitute for the two
+;; cellwise checks.
+;;
+;; #### How representative are the featured failures?
+
+^:kindly/hide-code
+(kind/hiccup
+ [:div.pf-callout.provisional
+  [:strong "Selected views, complete distribution"]
+  [:p
+   (format
+    (str "%d of 45 tuning cells missed the 94%% coverage requirement; %d "
+         "exceeded 105%% of v1's MAE; %d failed both. The buttons include "
+         "worst and middle-ranked failures, while the dot plots retain all "
+         "45 cells so readers can see their prevalence and severity.")
+    (:coverageFailureCount failure-explorer-data)
+    (:maeFailureCount failure-explorer-data)
+    (:bothFailureCount failure-explorer-data))]
+  [:p
+   (format
+    (str "The historical worst coverage was %.1f%% and worst MAE ratio was "
+         "%.1f%% of v1; this replay produced %.1f%% and %.1f%%. The small "
+         "difference is why the explorer is labelled diagnostic rather than "
+         "silently merged into the immutable gate result.")
+    (* 100.0 (get-in tuning-cell-diagnostic
+                     [:historical-summary :minimum-cell-coverage]))
+    (* 100.0 (get-in tuning-cell-diagnostic
+                     [:historical-summary :maximum-cell-mae-ratio]))
+    (* 100.0 (get-in tuning-cell-diagnostic
+                     [:replay-summary :minimum-cell-coverage]))
+    (* 100.0 (get-in tuning-cell-diagnostic
+                     [:replay-summary :maximum-cell-mae-ratio])))]
+  [:p
+   "Only the selected illustrative fit is calculated in the browser and each clicked case is cached. Publication reads the compact frozen cell summary; it does not rerun the 22,500 learner-pools."]])
+
+;; #### What patterns do the failed cells share? {#failure-patterns}
+;;
+;; The failures are not scattered uniformly. The full crossed grid reveals one
+;; strong coverage pattern, one different relative-error pattern, and one
+;; tempting explanation that the replay does **not** support.
+
+^:kindly/hide-code
+(let [by-width (:byWidth failure-pattern-summary)
+      by-known (:byKnownFraction failure-pattern-summary)
+      by-residual (:byResidualSd failure-pattern-summary)
+      width-075 (get by-width 0.75)
+      width-150 (get by-width 1.5)
+      width-300 (get by-width 3.0)
+      known-050 (get by-known 0.5)
+      known-070 (get by-known 0.7)
+      residual-000 (get by-residual 0.0)
+      residual-050 (get by-residual 0.5)
+      residual-100 (get by-residual 1.0)
+      median64 (:median64 failure-pattern-summary)]
+  (kind/hiccup
+   [:div.pf-table-wrap
+    [:table.pf-table.pf-explain-table
+     [:caption.pf-sr-only
+      "Patterns among failures in the 45-cell replay"]
+     [:thead
+      [:tr
+       [:th {:scope "col"} "Cell characteristic"]
+       [:th {:scope "col"} "Observed pattern"]
+       [:th {:scope "col"} "Interpretation"]]]
+     [:tbody
+      [:tr
+       [:th {:scope "row"} "Generating-curve width"]
+       [:td
+        (format
+         (str "Coverage failures: %d/15 at width 0.75, %d/15 at 1.5, "
+              "and %d/15 at 3. Mean coverage falls %.1f%% → %.1f%% → %.1f%%.")
+         (:coverageFailureCount width-075)
+         (:coverageFailureCount width-150)
+         (:coverageFailureCount width-300)
+         (* 100.0 (:meanCoverage width-075))
+         (* 100.0 (:meanCoverage width-150))
+         (* 100.0 (:meanCoverage width-300)))]
+       [:td
+        "Strongest association. A wider curve weakens the frequency gradient, so 64 sparse responses identify the whole-pool curve less sharply. Intervals widen and tests lengthen, but not enough to preserve cellwise calibration."]]
+      [:tr
+       [:th {:scope "row"} "Nominal known fraction"]
+       [:td
+        (format
+         (str "All %d/9 cells at 50%% known fail relative MAE; 0/36 other "
+              "cells do. At 50%%, mean v2 MAE is %,.0f versus v1's %,.0f "
+              "(%.1f%%). At 70%%, v2 is similarly %,.0f but v1 is %,.0f "
+              "(%.1f%%).")
+         (:maeFailureCount known-050)
+         (:meanV2Mae known-050)
+         (:meanV1Mae known-050)
+         (* 100.0 (:meanMaeRatio known-050))
+         (:meanV2Mae known-070)
+         (:meanV1Mae known-070)
+         (* 100.0 (:meanMaeRatio known-070)))]
+       [:td
+        "This is a relative-baseline effect: v1 has its accuracy sweet spot near the pool centre. It does not mean v2's absolute error becomes uniquely worst at 50% known."]]
+      [:tr
+       [:th {:scope "row"} "Pair residual SD"]
+       [:td
+        (format
+         (str "Coverage failures are %d/15, %d/15, and %d/15 as residual "
+              "SD rises 0 → 0.5 → 1; mean coverage stays %.1f%%, %.1f%%, "
+              "and %.1f%%. Each level has exactly %d relative-MAE failures.")
+         (:coverageFailureCount residual-000)
+         (:coverageFailureCount residual-050)
+         (:coverageFailureCount residual-100)
+         (* 100.0 (:meanCoverage residual-000))
+         (* 100.0 (:meanCoverage residual-050))
+         (* 100.0 (:meanCoverage residual-100))
+         (:maeFailureCount residual-000))]
+       [:td
+        "No monotonic coverage signal. Residual roughness may make estimation harder, but it does not explain which replay cells cross either gate."]]
+      [:tr
+       [:th {:scope "row"} "64-item cap"]
+       [:td
+        (format
+         (str "All %d/9 relative-MAE failures and %d/9 coverage failures "
+              "have median length 64. But so do %d/36 relative-MAE passes "
+              "and %d/36 coverage passes.")
+         (:maeFailures median64)
+         (:coverageFailures median64)
+         (:maePasses median64)
+         (:coveragePasses median64))]
+       [:td
+        "Hitting the cap is a stress symptom, not a sufficient cause: many cells pass despite the same median length, and three undercoverage cells stop earlier."]]]]]))
+
+^:kindly/hide-code
+(kind/hiccup
+ [:div.pf-callout.provisional
+  [:strong "Association inside the simulation—not a real-learner cause"]
+  [:p
+   "The replay is a balanced 5 × 3 × 3 factorial grid: known fraction, width, and residual SD are crossed independently. The width pattern therefore cannot be explained by over-representing one of the other settings. Within this simulated generator, widening the curve is an experimental change and is the clearest candidate mechanism behind undercoverage."]
+  [:p
+   "The limit is Monte Carlo precision and external validity. Each cell has 500 replicates; near 94% coverage, the binomial standard error is about 1.1 percentage points. Individual cells close to the line can swap pass/fail order in another replay. The broad width and 50%-known patterns are useful diagnostics, but they do not establish what will cause failures for real learners or calibrated real items."]])
 
 ;; ### Inspect the historical gate
 ;;

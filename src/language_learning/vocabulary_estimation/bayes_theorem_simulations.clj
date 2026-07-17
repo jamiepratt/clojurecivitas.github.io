@@ -6,6 +6,8 @@
                   :description "A visual, interactive introduction to Bayesian updating, posterior sampling, decisions, and Gaussian grid approximation."
                   :type :post
                   :date "2026-07-13"
+                  :image "bayes_theorem_simulations_preview.png"
+                  :image-alt "Three Gaussian parameter-grid heatmaps show the posterior before and after a seeded height observation, with playback controls."
                   :category :concepts
                   :tags [:bayesian-statistics :clojure :clojurescript :scittle :simulation]
                   :keywords [:bayes-theorem :grid-approximation :posterior-sampling :normal-distribution :data-visualisation]}}}
