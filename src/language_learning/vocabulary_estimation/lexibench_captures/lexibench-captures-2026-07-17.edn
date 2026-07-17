@@ -1,0 +1,41 @@
+{:schema-version 1
+ :capture-set-id "lexibench-production-2026-07-17"
+ :captured-by "Codex internal browser (coordinator agent)"
+ :browser-surface :codex-internal-browser
+ :capture-policy :read-only
+ :theme :light
+ :notes "Dated production evidence. Replacing any image requires a new dated filename, capture record, and hash; do not overwrite this set after publication. Files preserve the JPEG bytes returned by the browser capture surface."
+ :captures
+ [{:id :starting-level
+   :file "lexibench-2026-07-17-starting-level.jpg"
+   :media-type "image/jpeg"
+   :sha-256 "4b5125da52f32e1118600a859536ef97be08585dba5aa429870c4864e51fcc59"
+   :source-url "https://lexibench.com/#/"
+   :capture-date "2026-07-17"
+   :viewport {:width 1920 :height 1080}
+   :product-status :current-production
+   :recapture-state "Open the test route in a clean desktop viewport before beginning; show the passive-vocabulary explanation, all seven starting-level choices, the 80-item duration note, and Begin Test."
+   :alt "LexiBench start screen explaining passive vocabulary and offering seven starting-level choices before an 80-item test."
+   :prose-equivalent "The start screen defines passive vocabulary, asks for a starting level from pre-A1 through C2, and says the test has 80 sentence-context items."}
+  {:id :unanswered-sentence-item
+   :file "lexibench-2026-07-17-unanswered-sentence-item.jpg"
+   :media-type "image/jpeg"
+   :sha-256 "26ccf39adf58d4c133c7df3284aefb01956c4d0d92db39a9ecc137a5025ac4b4"
+   :source-url "https://lexibench.com/#/"
+   :capture-date "2026-07-17"
+   :viewport {:width 1280 :height 1133}
+   :product-status :current-production
+   :recapture-state "Begin a production test from the default starting level, then capture the first live sentence item at 0/80 before selecting or submitting any answer; include the sentence, all choices, and don't-know action."
+   :alt "Unanswered LexiBench sentence item at zero of eighty, with one highlighted Polish form, five English choices, and a don't-know option."
+   :prose-equivalent "Before any response, the live item shows progress at 0/80, asks for the highlighted Polish form’s meaning in its sentence, offers five translations, and keeps a separate don't-know response."}
+  {:id :published-scoring-example
+   :file "lexibench-2026-07-17-published-scoring-example.jpg"
+   :media-type "image/jpeg"
+   :sha-256 "960f84398310b2eaece5f58712e593a367d1ed2a163ceab010a31999f953ea50"
+   :source-url "https://lexibench.com/#/current/scoring"
+   :capture-date "2026-07-17"
+   :viewport {:width 1920 :height 1080}
+   :product-status :current-production
+   :recapture-state "Open Current > Scoring, use the Quick view anchor for Live estimate and final result, and capture the published static live/final example including its center estimate and likely range."
+   :alt "Published LexiBench scoring example showing a live and final estimate of about 1,450 recognized Polish lemmas with a likely range of 1,050 to 1,900."
+   :prose-equivalent "The published example reports about 1,450 recognized Polish lemmas, shows 1,050–1,900 as the likely range, and labels the result approximate rather than exact."}]}

@@ -27,3 +27,60 @@
 
 (deftest namespace-loads-without-a-dom-test
   (is (false? (controls/dom-available?))))
+
+(deftest drawer-state-and-focus-contract-test
+  (is (= {:open? true :focus :drawer-close}
+         (controls/drawer-transition {:open? false} :open)))
+  (is (= {:open? false :focus :trigger}
+         (controls/drawer-transition {:open? true} :close)))
+  (is (= {:open? false :focus :trigger}
+         (controls/drawer-transition {:open? true} :escape)))
+  (is (= {:open? false :focus nil}
+         (controls/drawer-transition {:open? false} :escape))))
+
+(deftest active-section-follows-hash-then-scroll-position-test
+  (let [sections [{:id "question" :top -180}
+                  {:id "chain" :top 48}
+                  {:id "limits" :top 260}]]
+    (is (= "limits" (controls/active-section-id sections "#limits" 96)))
+    (is (= "chain" (controls/active-section-id sections "" 96)))
+    (is (= "chain" (controls/active-section-id sections "#missing" 96)))
+    (is (= "question"
+           (controls/active-section-id
+            [{:id "question" :top 250}
+             {:id "chain" :top 520}]
+            "" 96)))))
+
+(deftest anchor-navigation-leaves-history-to-the-native-anchor-test
+  (is (= {:hash "#measurement-chain"
+          :history :native
+          :scroll :smooth
+          :focus "measurement-chain"}
+         (controls/anchor-navigation "measurement-chain" false)))
+  (is (= :instant
+         (:scroll (controls/anchor-navigation "measurement-chain" true)))))
+
+(deftest section-id-is-derived-from-rendered-link-href-test
+  (is (= "measurement-chain"
+         (controls/section-id-from-href "#measurement-chain")))
+  (is (= "measurement-chain"
+         (controls/section-id-from-href
+          "http://localhost/article.html#measurement-chain")))
+  (is (nil? (controls/section-id-from-href "http://localhost/article.html")))
+  (is (nil? (controls/section-id-from-href "#"))))
+
+(deftest global-key-handling-ignores-editable-contexts-test
+  (doseq [context [{:tag-name "input"}
+                   {:tag-name "TEXTAREA"}
+                   {:tag-name "select"}
+                   {:content-editable? true}
+                   {:role "textbox"}]]
+    (is (false? (controls/global-key-handled? "Escape" context true))))
+  (is (true? (controls/global-key-handled?
+              "Escape" {:tag-name "DIV"} true)))
+  (is (true? (controls/global-key-handled?
+              "Escape" {:tag-name "BUTTON"} true)))
+  (is (false? (controls/global-key-handled?
+               "ArrowDown" {:tag-name "DIV"} true)))
+  (is (false? (controls/global-key-handled?
+               "Escape" {:tag-name "DIV"} false))))

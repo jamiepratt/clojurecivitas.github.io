@@ -31,6 +31,62 @@
      :code code
      :equations equations}))
 
+(defn drawer-transition
+  "Return the drawer's next public state and the focus destination."
+  [{:keys [open?]} event]
+  (case event
+    :open {:open? true :focus :drawer-close}
+    :close {:open? false :focus :trigger}
+    :escape (if open?
+              {:open? false :focus :trigger}
+              {:open? false :focus nil})
+    {:open? (boolean open?) :focus nil}))
+
+(defn active-section-id
+  "Choose an active contents id from a valid hash or section top positions."
+  [sections hash-text activation-offset]
+  (let [hash-id (when (and (string? hash-text)
+                           (str/starts-with? hash-text "#"))
+                  (subs hash-text 1))
+        ids (set (map :id sections))]
+    (or (when (contains? ids hash-id) hash-id)
+        (some->> sections
+                 (filter #(<= (:top %) activation-offset))
+                 last
+                 :id)
+        (:id (first sections)))))
+
+(defn anchor-navigation
+  "Describe direct-anchor navigation without requiring a DOM."
+  [section-id reduced-motion?]
+  {:hash (str "#" section-id)
+   :history :native
+   :scroll (if reduced-motion? :instant :smooth)
+   :focus section-id})
+
+(defn section-id-from-href
+  "Read a section id from either a fragment-only or absolute same-page href."
+  [href]
+  (when-let [hash-index (and (string? href) (str/last-index-of href "#"))]
+    (let [section-id (subs href (inc hash-index))]
+      (when-not (str/blank? section-id)
+        section-id))))
+
+(def editable-tags #{"input" "textarea" "select"})
+
+(defn editable-context?
+  [{:keys [tag-name content-editable? role]}]
+  (or (contains? editable-tags (str/lower-case (or tag-name "")))
+      (true? content-editable?)
+      (= "textbox" (str/lower-case (or role "")))))
+
+(defn global-key-handled?
+  "The series controller owns Escape only for an open drawer outside editors."
+  [key context drawer-open?]
+  (and drawer-open?
+       (= "Escape" key)
+       (not (editable-context? context))))
+
 (defn dom-available? []
   (exists? js/document))
 
@@ -353,7 +409,171 @@
                      " equation code disclosures.")))
       equation-details)))
 
+(defn- element-editable-context [element]
+  (let [editable-root
+        (when (and element (.-closest element))
+          (.closest element
+                    "input,textarea,select,[contenteditable],[role=textbox]"))]
+    {:tag-name (some-> editable-root .-tagName)
+     :content-editable? (boolean (some-> editable-root .-isContentEditable))
+     :role (some-> editable-root (.getAttribute "role"))}))
+
+(defn- initialise-series-controls! []
+  (when-let [config-node
+             (.getElementById js/document "article-controls-config")]
+    (when-not (= "true" (data-value config-node "initialized"))
+      (let [config
+            (js->clj
+             (js/JSON.parse (or (.-textContent config-node) "{}"))
+             :keywordize-keys true)
+            sections (:sections config)
+            open-button (.getElementById js/document "article-contents-open")
+            close-button (.getElementById js/document "article-contents-close")
+            drawer (.getElementById js/document "article-contents-drawer")
+            backdrop (.getElementById js/document "article-contents-backdrop")
+            contents-links
+            (q-all js/document
+                   ".article-contents-list a[data-section-id]")
+            drawer-state (atom {:open? false :focus nil})
+            reduced-motion-query
+            (.matchMedia js/window "(prefers-reduced-motion: reduce)")
+            activation-offset 112
+            frame (atom nil)]
+        (aset (.-dataset config-node) "initialized" "true")
+        (doseq [link contents-links
+                :let [section-id (data-value link "sectionId")]
+                :when section-id]
+          (.setAttribute link "href" (str "#" section-id))
+          (.removeAttribute link "data-original-href"))
+        (letfn [(section-elements []
+                  (mapv
+                   (fn [{:keys [id]}]
+                     {:id id
+                      :element (.getElementById js/document id)})
+                   sections))
+                (set-active! [section-id]
+                  (doseq [link contents-links]
+                    (let [active? (= section-id
+                                     (data-value link "sectionId"))]
+                      (.toggle (.-classList link)
+                               "is-active" active?)
+                      (if active?
+                        (.setAttribute link "aria-current" "location")
+                        (.removeAttribute link "aria-current")))))
+                (focus! [destination]
+                  (case destination
+                    :drawer-close (some-> close-button .focus)
+                    :trigger (some-> open-button .focus)
+                    nil))
+                (render-drawer! [state]
+                  (let [open? (:open? state)]
+                    (reset! drawer-state state)
+                    (when open-button
+                      (.setAttribute open-button "aria-expanded" (str open?)))
+                    (when drawer
+                      (set! (.-hidden drawer) (not open?))
+                      (.setAttribute drawer "aria-hidden" (str (not open?))))
+                    (when backdrop
+                      (set! (.-hidden backdrop) (not open?)))
+                    (.toggle (.-classList (.-body js/document))
+                             "article-contents-open" open?)
+                    (focus! (:focus state))))
+                (transition-drawer! [event]
+                  (render-drawer!
+                   (drawer-transition @drawer-state event)))
+                (focus-section! [element]
+                  (when element
+                    (when-not (.hasAttribute element "tabindex")
+                      (.setAttribute element "tabindex" "-1")
+                      (aset (.-dataset element)
+                            "articleControlsTabindex" "temporary"))
+                    (.focus element #js {:preventScroll true})))
+                (navigate! [section-id]
+                  (when-let [target (.getElementById js/document section-id)]
+                    (let [{:keys [scroll]}
+                          (anchor-navigation
+                           section-id (.-matches reduced-motion-query))]
+                      (.scrollIntoView
+                       target
+                       #js {:behavior (if (= :smooth scroll)
+                                        "smooth" "auto")
+                            :block "start"})
+                      (set-active! section-id)
+                      (render-drawer! {:open? false :focus nil})
+                      (focus-section! target))))
+                (sync-active-from-scroll! []
+                  (let [metrics
+                        (->> (section-elements)
+                             (keep (fn [{:keys [id element]}]
+                                     (when element
+                                       {:id id
+                                        :top (.-top
+                                              (.getBoundingClientRect
+                                               element))})))
+                             vec)]
+                    (set-active!
+                     (active-section-id metrics "" activation-offset))))
+                (schedule-active-sync! []
+                  (when (nil? @frame)
+                    (reset!
+                     frame
+                     (.requestAnimationFrame
+                      js/window
+                      (fn []
+                        (reset! frame nil)
+                        (sync-active-from-scroll!))))))
+                (sync-from-location! []
+                  (let [hash-text (.-hash (.-location js/window))
+                        section-id (when (str/starts-with? hash-text "#")
+                                     (subs hash-text 1))
+                        valid-ids (set (map :id sections))]
+                    (when (contains? valid-ids section-id)
+                      (navigate! section-id))))]
+          (render-drawer! @drawer-state)
+          (when open-button
+            (.addEventListener
+             open-button "click" #(transition-drawer! :open)))
+          (when close-button
+            (.addEventListener
+             close-button "click" #(transition-drawer! :close)))
+          (when backdrop
+            (.addEventListener
+             backdrop "click" #(transition-drawer! :close)))
+          (.addEventListener
+           js/document "click"
+           (fn [event]
+             (let [target (.-target event)
+                   link (when (and target (.-closest target))
+                          (.closest
+                           target
+                           ".article-contents-list a[data-section-id]"))]
+               (when link
+                 (let [section-id
+                       (or (data-value link "sectionId")
+                           (section-id-from-href
+                            (.getAttribute link "href")))]
+                   (js/setTimeout #(navigate! section-id) 0))))))
+          (.addEventListener
+           js/document "keydown"
+           (fn [event]
+             (let [target (or (.-target event) (.-activeElement js/document))]
+               (when (global-key-handled?
+                      (.-key event)
+                      (element-editable-context target)
+                      (:open? @drawer-state))
+                 (.preventDefault event)
+                 (transition-drawer! :escape))))
+           #js {:capture true})
+          (.addEventListener js/window "scroll" schedule-active-sync!
+                             #js {:passive true})
+          (.addEventListener js/window "resize" schedule-active-sync!)
+          (.addEventListener js/window "hashchange" sync-from-location!)
+          (.addEventListener js/window "popstate" sync-from-location!)
+          (sync-active-from-scroll!)
+          (sync-from-location!))))))
+
 (defn- initialise! []
+  (initialise-series-controls!)
   (when-let [article-main
              (or (.getElementById js/document "quarto-document-content")
                  (q js/document "main"))]

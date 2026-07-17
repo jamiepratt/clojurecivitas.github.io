@@ -1,5 +1,6 @@
 (ns language-learning.vocabulary-estimation.article-equation-code-test
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [language-learning.vocabulary-estimation.article-controls :as controls]))
@@ -15,6 +16,17 @@
 
 (defn occurrence-count [pattern text]
   (count (re-seq pattern text)))
+
+(defn file-sha-256 [file]
+  (let [digest (java.security.MessageDigest/getInstance "SHA-256")]
+    (with-open [input (io/input-stream file)]
+      (let [buffer (byte-array 8192)]
+        (loop []
+          (let [read-count (.read input buffer)]
+            (when (pos? read-count)
+              (.update digest buffer 0 read-count)
+              (recur))))))
+    (format "%064x" (BigInteger. 1 (.digest digest)))))
 
 (deftest every-display-equation-has-code-provenance-and-symbol-help
   (doseq [file (authored-article-files)
@@ -114,11 +126,115 @@
     (is (str/includes? (second (first styles))
                        ".article-equation-title-icon"))))
 
+(deftest series-manifest-has-a-stable-five-article-opening
+  (is (= [:workflow :purpose :bayes :proposal-1 :proposal-2]
+         (mapv :id controls/series-manifest)))
+  (is (= [1 2 3 4 5]
+         (mapv :number controls/series-manifest)))
+  (is (every? #(every? (set (keys %))
+                       [:id :number :title :url :status])
+              controls/series-manifest))
+  (is (seq controls/series-roadmap))
+  (is (every? #(and (:id %) (:title %) (:status %) (nil? (:number %)))
+              controls/series-roadmap)))
+
+(deftest configured-controls-render-series-context-and-active-contents-data
+  (let [configured
+        (controls/install
+         {:article-id :purpose
+          :sections [{:id "learner-question"
+                      :label "The learner's question"}]
+          :technical-sections [{:id "technical-depth"
+                                :label "Technical depth"}]})
+        nodes (filter vector? (tree-seq coll? seq configured))
+        node-by-id
+        (fn [id]
+          (some #(when (and (map? (second %))
+                            (= id (:id (second %))))
+                   %)
+                nodes))
+        links (filter #(= :a (first %)) nodes)
+        current (some #(when (= "page" (get-in % [1 :aria-current])) %) nodes)
+        json-node (node-by-id "article-controls-config")
+        drawer (some #(when (= :aside#article-contents-drawer.article-contents-drawer
+                               (first %))
+                        %)
+                     nodes)
+        style (second (some #(when (= :style (first %)) %) nodes))]
+    (is (= :purpose (get-in (controls/series-context :purpose) [:current :id])))
+    (is (= :workflow (get-in (controls/series-context :purpose) [:previous :id])))
+    (is (= :bayes (get-in (controls/series-context :purpose) [:next :id])))
+    (is (some #(= "managing_brilliant_but_uneven_minds.html"
+                  (get-in % [1 :href])) links))
+    (is (some #(= "bayes_theorem_simulations.html"
+                  (get-in % [1 :href])) links))
+    (is (= "Article 2 of 5" (last current)))
+    (is (= 2 (count (filter #(= "page" (get-in % [1 :aria-current]))
+                            nodes))))
+    (is (some #(= :details.series-roadmap (first %)) nodes))
+    (is (= "application/json" (get-in json-node [1 :type])))
+    (is (str/includes? (last json-node) "\"articleId\":\"purpose\""))
+    (is (str/includes? (last json-node) "\"technical\":true"))
+    (is (= "dialog" (get-in drawer [1 :role])))
+    (is (true? (get-in drawer [1 :hidden])))
+    (is (str/includes? style "prefers-reduced-motion: reduce"))))
+
+(deftest purpose-article-is-a-bounded-standalone-orientation
+  (let [source (slurp (io/file authored-root "why_estimate_vocabulary.clj"))
+        visible-region (second (re-find
+                                #"(?s)BEGIN ALWAYS-VISIBLE(.*?)END ALWAYS-VISIBLE"
+                                source))
+        visible-prose (->> (str/split-lines visible-region)
+                           (keep #(second (re-find #"^;;\s?(.*)$" %)))
+                           (str/join " "))
+        word-count (count (re-seq #"[\p{L}\p{N}]+(?:[’'-][\p{L}\p{N}]+)*"
+                                  visible-prose))]
+    (is (<= 1500 word-count 2200)
+        (str "Always-visible Article 2 prose has " word-count " words."))
+    (doseq [contract ["Current LexiBench scorer"
+                      "Proposal 1"
+                      "stratified-beta-binomial-v1"
+                      "Proposal 2"
+                      "continuous-pair-frequency-logistic-v2"
+                      "Neither proposal is deployed"
+                      "synthetic 8,000-pair pool"
+                      "estimated receptive Polish lemmas"
+                      "lemma–surface-form pairs"
+                      "calibration"
+                      "adaptive"]]
+      (is (str/includes? source contract)
+          (str "Missing Article 2 boundary: " contract)))
+    (is (str/includes? source
+                       "(controls/install\n {:article-id :purpose"))))
+
+(deftest purpose-article-production-captures-are-immutable-and-described
+  (let [capture-root (io/file authored-root "lexibench_captures")
+        manifest-file (io/file capture-root
+                               "lexibench-captures-2026-07-17.edn")
+        captures (:captures (edn/read-string (slurp manifest-file)))
+        article (slurp (io/file authored-root "why_estimate_vocabulary.clj"))]
+    (is (= 3 (count captures)))
+    (doseq [{:keys [file sha-256 source-url capture-date product-status
+                    recapture-state alt prose-equivalent]} captures
+            :let [image-file (io/file capture-root file)]]
+      (testing file
+        (is (.exists image-file))
+        (is (= sha-256 (file-sha-256 image-file)))
+        (is (= "2026-07-17" capture-date))
+        (is (= :current-production product-status))
+        (is (str/starts-with? source-url "https://lexibench.com/"))
+        (is (not (str/blank? recapture-state)))
+        (is (<= 18 (count alt)))
+        (is (<= 30 (count prose-equivalent)))
+        (is (str/includes? article file))
+        (is (str/includes? article alt))
+        (is (str/includes? article prose-equivalent))))))
+
 (deftest every-authored-article-installs-controls-once
   (doseq [file (authored-article-files)
           :let [source (slurp file)]]
     (testing (.getPath file)
-      (is (= 1 (occurrence-count #"\(controls/install\)" source)))
+      (is (= 1 (occurrence-count #"\(controls/install(?:\)|\s)" source)))
       (is (str/includes?
            source
            "[language-learning.vocabulary-estimation.article-controls :as controls]"))
