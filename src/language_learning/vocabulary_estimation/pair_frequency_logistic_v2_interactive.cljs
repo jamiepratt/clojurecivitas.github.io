@@ -10,6 +10,7 @@
 
 (def xs (or (parse-json-element "pair-frequency-xs" false) []))
 (def gate-data (parse-json-element "pair-frequency-gate-data" true))
+(def failure-data (parse-json-element "pair-frequency-failure-data" true))
 
 (def number-format (js/Intl.NumberFormat. "en-US"))
 (defn format-count [number] (.format number-format (js/Math.round number)))
@@ -43,10 +44,10 @@
   (let [{:keys [threshold width]} @curve-state
         total (v2/expected-total xs threshold width)
         anchors [{:x (- threshold (/ width 2.0))
-                  :probability 0.1 :label "10%, odds 1 to 9"}
-                 {:x threshold :probability 0.5 :label "50%, odds 1 to 1"}
+                  :probability 0.1 :visible-label "10%"}
+                 {:x threshold :probability 0.5 :visible-label "50%"}
                  {:x (+ threshold (/ width 2.0))
-                  :probability 0.9 :label "90%, odds 9 to 1"}]]
+                  :probability 0.9 :visible-label "90%"}]]
     [:div
      [:div.pf-controls
       [field "curve-threshold" "Threshold t" threshold -2.5 3.0 0.05
@@ -57,7 +58,7 @@
       "Expected known total in this fixture: " [:strong (format-count total)]
       " of 8,000 pairs."]
      [:p.pf-note
-      "Annotated dots mark t − w/2 (10%), t (50%), and t + w/2 (90%) when those positions are inside the displayed predictor range."]
+      "Labelled dots mark t − w/2 (10%), t (50%), and t + w/2 (90%) when those positions are inside the displayed predictor range."]
      [:svg {:view-box "0 0 680 270" :role "img"
             :aria-labelledby "curve-title curve-desc"}
       [:title#curve-title "Frequency predictor and knowing probability"]
@@ -80,19 +81,29 @@
       [:path {:d (curve-path threshold width) :fill "none"
               :stroke "var(--pf-accent,#2780e3)"
               :stroke-width 4 :vector-effect "non-scaling-stroke"}]
-      (for [{:keys [x probability label]} anchors
+      (for [{:keys [x probability visible-label]} anchors
             :when (<= curve-x-min x curve-x-max)
             :let [px (curve-px x)
-                  py (- 210 (* probability 160))]]
-        ^{:key label}
+                  py (- 210 (* probability 160))
+                  label-left? (> px 585)
+                  label-x (+ px (if label-left? -10 10))]]
+        ^{:key visible-label}
         [:g
          [:line {:x1 px :x2 px :y1 py :y2 210
                  :stroke "var(--pf-warn,#8a5000)"
                  :stroke-width 1.5 :stroke-dasharray "4 4"}]
          [:circle {:cx px :cy py :r 6
                    :fill "var(--pf-warn,#8a5000)"
-                   :stroke "var(--bs-body-bg,#fff)" :stroke-width 2}
-          [:title label]]])
+                   :stroke "var(--bs-body-bg,#fff)" :stroke-width 2}]
+         [:text.pf-curve-anchor-label
+          {:x label-x :y (- py 11)
+           :text-anchor (if label-left? "end" "start")
+           :font-size 13 :font-weight 700
+           :fill "currentColor"
+           :stroke "var(--bs-body-bg,#fff)" :stroke-width 4
+           :stroke-linejoin "round" :paint-order "stroke fill"
+           :pointer-events "none"}
+          visible-label]])
       [:text {:x 343 :y 250 :text-anchor "middle" :font-size 14
               :fill "currentColor"} "Standardized log₁₀ pair frequency x"]]]))
 
@@ -785,6 +796,225 @@
        [:li [:span.pf-model-swatch.is-v1 {:aria-hidden "true"}] "v1: 8 steps"]
        [:li [:span.pf-model-swatch.is-v2 {:aria-hidden "true"}] "v2: smooth curve"]]]]))
 
+(defn standard-normal-draw [state]
+  (let [[u1 next-state] (v2/uniform-draw state)
+        [u2 final-state] (v2/uniform-draw next-state)
+        radius (js/Math.sqrt (* -2.0 (js/Math.log (max u1 1.0e-12))))
+        angle (* 2.0 js/Math.PI u2)]
+    [(* radius (js/Math.cos angle)) final-state]))
+
+(defn draw-supported-latent-outcomes
+  [{:keys [expectedRatio width residualSd visualSeed]}]
+  (let [threshold (v2/threshold-for-total xs width (* 8000 expectedRatio))]
+    (loop [index 0
+           state (v2/normalize-seed visualSeed)
+           outcomes []]
+      (if (= index (count xs))
+        outcomes
+        (let [[residual next-state]
+              (if (pos? residualSd)
+                (standard-normal-draw state)
+                [0.0 state])
+              probability
+              (v2/logistic
+               (+ (v2/linear-predictor (nth xs index) threshold width)
+                  (* residualSd residual)))
+              [outcome final-state]
+              (v2/bernoulli-draw next-state probability)]
+          (recur (inc index) final-state (conj outcomes outcome)))))))
+
+(defn cell-setting-label [{:keys [expectedRatio width residualSd]}]
+  (str (.toFixed (* 100 expectedRatio) 0) "% nominal · width " width
+       " SD · residual " residualSd " log-odds"))
+
+(defn build-failure-scenario [cell]
+  (let [selected (->> (v2/selection-schedule
+                       (browser-pairs) 8 2026071301)
+                      (take 8)
+                      (mapcat identity)
+                      vec)
+        latent-outcomes (draw-supported-latent-outcomes cell)]
+    (fit-model-scenario
+     {:key (keyword (str "failure-" (:id cell)))
+      :title (cell-setting-label cell)
+      :description
+      (str "One seeded illustrative learner-pool generated under this tuning "
+           "cell. The metrics above summarize 500 independent learner-pools.")
+      :latent-outcomes latent-outcomes
+      :false-negative 0.0}
+     selected)))
+
+(def failure-cells (or (:cells failure-data) []))
+(def failure-featured (or (:featured failure-data) []))
+(def initial-failure-id (get-in failure-featured [0 :id]))
+(defonce failure-cache (atom {}))
+(defonce failure-state
+  (r/atom {:selected-id initial-failure-id
+           :status :idle
+           :scenario nil
+           :error nil}))
+
+(defn failure-cell-by-id [id]
+  (first (filter #(= id (:id %)) failure-cells)))
+
+(defn load-failure-case! [id]
+  (if-let [scenario (get @failure-cache id)]
+    (reset! failure-state
+            {:selected-id id :status :complete
+             :scenario scenario :error nil})
+    (do
+      (reset! failure-state
+              {:selected-id id :status :running
+               :scenario nil :error nil})
+      (js/setTimeout
+       (fn []
+         (try
+           (let [scenario (build-failure-scenario
+                           (failure-cell-by-id id))]
+             (swap! failure-cache assoc id scenario)
+             (when (= id (:selected-id @failure-state))
+               (reset! failure-state
+                       {:selected-id id :status :complete
+                        :scenario scenario :error nil})))
+           (catch :default error
+             (js/console.error error)
+             (when (= id (:selected-id @failure-state))
+               (reset! failure-state
+                       {:selected-id id :status :error
+                        :scenario nil :error (.-message error)})))))
+       20))))
+
+(defn metric-x [value minimum maximum]
+  (+ 50.0 (* (/ (- value minimum) (- maximum minimum)) 520.0)))
+
+(defn metric-label [value percent?]
+  (if percent?
+    (str (.toFixed (* 100 value) 1) "%")
+    (str (.toFixed (* 100 value) 1) "% of v1")))
+
+(defn failure-metric-plot
+  [title value-key threshold lower-is-better? selected-id]
+  (let [values (map value-key failure-cells)
+        raw-minimum (apply min (conj (vec values) threshold))
+        raw-maximum (apply max (conj (vec values) threshold))
+        padding (max 0.005 (* 0.08 (- raw-maximum raw-minimum)))
+        minimum (max 0.0 (- raw-minimum padding))
+        maximum (if (= value-key :coverage)
+                  (min 1.0 (+ raw-maximum padding))
+                  (+ raw-maximum padding))
+        threshold-x (metric-x threshold minimum maximum)
+        percent? (= value-key :coverage)]
+    [:section.pf-failure-plot
+     [:h5 title]
+     [:svg
+      {:view-box "0 0 620 180" :preserve-aspect-ratio "none"
+       :role "img"
+       :aria-label
+       (str title ". One dot for each of 45 tuning cells. The gate threshold is "
+            (metric-label threshold percent?) ".")}
+      [:line {:x1 50 :x2 570 :y1 140 :y2 140
+              :stroke "var(--bs-border-color,#dee2e6)"}]
+      [:line {:x1 threshold-x :x2 threshold-x :y1 26 :y2 146
+              :stroke "var(--pf-fail,#a72f24)" :stroke-width 2
+              :stroke-dasharray "5 4" :vector-effect "non-scaling-stroke"}]
+      [:text {:x threshold-x :y 21 :text-anchor "middle" :font-size 24
+              :font-weight 700 :fill "var(--pf-fail,#a72f24)"}
+       "gate"]
+      (for [[index cell] (map-indexed vector failure-cells)
+            :let [value (value-key cell)
+                  fails? (if lower-is-better?
+                           (> value threshold)
+                           (< value threshold))
+                  selected? (= selected-id (:id cell))
+                  x (metric-x value minimum maximum)
+                  y (+ 45 (* 20 (mod index 5)))]]
+        ^{:key (:id cell)}
+        [:g
+         (when selected?
+           [:circle {:cx x :cy y :r 12 :fill "none"
+                     :stroke "var(--pf-accent,#1464b5)" :stroke-width 3
+                     :vector-effect "non-scaling-stroke"}])
+         [:circle {:cx x :cy y :r 7
+                   :fill (if fails?
+                           "var(--pf-fail,#a72f24)"
+                           "var(--pf-success,#0f695f)")}]])
+      [:text {:x 50 :y 171 :text-anchor "start" :font-size 21
+              :fill "currentColor"}
+       (metric-label minimum percent?)]
+      [:text {:x 570 :y 171 :text-anchor "end" :font-size 21
+              :fill "currentColor"}
+       (metric-label maximum percent?)]]]))
+
+(defn failure-summary-card [label value detail fails?]
+  [:section {:class (str "pf-failure-summary-card "
+                         (if fails? "is-fail" "is-pass"))}
+   [:small label]
+   [:strong value]
+   [:span detail]])
+
+(defn failure-case-explorer []
+  (let [{:keys [selected-id status scenario error]} @failure-state
+        selected (failure-cell-by-id selected-id)
+        coverage-threshold (:coverageThreshold failure-data)
+        mae-threshold (:maeRatioThreshold failure-data)]
+    [:section.pf-failure-shell {:aria-labelledby "failure-explorer-heading"}
+     [:div.pf-failure-heading
+      [:h4#failure-explorer-heading "Cell failures behind the aggregate"]
+      [:p
+       (str (:coverageFailureCount failure-data) " coverage failures · "
+            (:maeFailureCount failure-data) " relative-MAE failures · "
+            (:bothFailureCount failure-data) " failed both")]]
+     [:p.pf-failure-settings-key
+      [:strong "True simulation settings"]
+      " — nominal known fraction · 10%–90% curve width in standardized-frequency SDs · pair residual SD in log-odds. These are inputs, not fitted learner estimates."]
+     [:div.pf-failure-selector
+      {:aria-label "Featured tuning cells by true simulation settings"}
+      (for [{:keys [id label]} failure-featured
+            :let [cell (failure-cell-by-id id)]]
+        ^{:key id}
+        [:button.pf-failure-button
+         {:type "button" :aria-pressed (= id selected-id)
+          :aria-label (str label ". True simulation settings: "
+                           (cell-setting-label cell))
+          :on-click #(load-failure-case! id)}
+         [:strong label]
+         [:span (cell-setting-label cell)]])]
+     [:div.pf-failure-plots
+      [failure-metric-plot "95% interval coverage" :coverage
+       coverage-threshold false selected-id]
+      [failure-metric-plot "V2 MAE relative to v1" :maeRatio
+       mae-threshold true selected-id]]
+     (when selected
+       [:div.pf-failure-summary
+        [failure-summary-card
+         "Cell coverage"
+         (str (.toFixed (* 100 (:coverage selected)) 1) "%")
+         "Must be at least 94%"
+         (< (:coverage selected) coverage-threshold)]
+        [failure-summary-card
+         "Mean absolute error"
+         (str (format-count (:v2Mae selected)) " pairs")
+         (str (.toFixed (* 100 (:maeRatio selected)) 1)
+              "% of v1 · v1 " (format-count (:v1Mae selected)))
+         (> (:maeRatio selected) mae-threshold)]
+        [failure-summary-card
+         "Mean signed error"
+         (str (if (neg? (:bias selected)) "" "+")
+              (format-count (:bias selected)) " pairs")
+         "Positive means overestimation"
+         false]
+        [failure-summary-card
+         "Quiz length"
+         (str (:medianItems selected) " median items")
+         (str (.toFixed (:meanItems selected) 1) " mean items")
+         (> (:medianItems selected) 40)]])
+     [:div.pf-failure-visual {:aria-live "polite"}
+      (case status
+        :running [:p "Generating the selected seeded learner-pool and fitting both models…"]
+        :complete [model-scenario-panel scenario]
+        :error [:p {:role "alert"} (str "Cell visualization failed: " error)]
+        [:p "Preparing the first cell visualization…"])]]))
+
 (defonce model-scenario-state (r/atom {:status :idle :scenarios nil}))
 
 (defn load-model-scenarios! []
@@ -1085,16 +1315,20 @@
   (str
    ".pf-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr));gap:.8rem;align-items:end}.pf-control{display:grid;gap:.3rem;min-width:0}.pf-control input{width:100%;min-width:0;accent-color:var(--pf-accent,#1464b5)}"
    ".pf-button{border:1px solid var(--pf-accent,#1464b5);border-radius:.4rem;padding:.6rem .9rem;background:var(--pf-accent,#1464b5);color:var(--bs-body-bg,#fff);font-weight:700;cursor:pointer}.quarto-dark .pf-button{color:#10212b}.pf-button:disabled{opacity:.6;cursor:wait}"
-   ".pf-button:focus-visible,.pf-control input:focus-visible,.pf-gate-field input:focus-visible,.pf-gate-reset:focus-visible{outline:3px solid color-mix(in srgb,var(--pf-accent,#2780e3) 50%,transparent);outline-offset:2px}.pf-live{font-variant-numeric:tabular-nums}.pf-lab svg{display:block;width:100%;height:auto}.pf-note{font-size:.88rem;color:var(--pf-muted,#4f5b66)}"
+   ".pf-button:focus-visible,.pf-control input:focus-visible,.pf-failure-button:focus-visible,.pf-gate-field input:focus-visible,.pf-gate-reset:focus-visible{outline:3px solid color-mix(in srgb,var(--pf-accent,#2780e3) 50%,transparent);outline-offset:2px}.pf-live{font-variant-numeric:tabular-nums}.pf-lab svg{display:block;width:100%;height:auto}.pf-note{font-size:.88rem;color:var(--pf-muted,#4f5b66)}"
    ".pf-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr));gap:.8rem;margin-top:1rem}.pf-summary-grid section{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.45rem;padding:.7rem;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529)}.pf-summary-grid h4{font-size:.95rem;margin:0 0 .3rem}.pf-summary-grid p{margin:.2rem 0}"
    ".pf-model-shell{display:grid;gap:1.4rem;min-width:0}.pf-model-scenario{display:grid;gap:.65rem;min-width:0;border-top:1px solid var(--bs-border-color,#dee2e6);padding-top:1.25rem}.pf-model-scenario:first-child{border-top:0;padding-top:0}.pf-model-heading h4{margin:0 0 .2rem}.pf-model-heading p{margin:0;color:var(--pf-muted,#4f5b66)}.pf-model-summary{display:flex;gap:.45rem 1.1rem;flex-wrap:wrap;font-variant-numeric:tabular-nums}.pf-model-summary span{white-space:nowrap}.pf-model-lane{display:grid;grid-template-columns:minmax(10.25rem,.24fr) minmax(0,1fr);gap:.7rem;align-items:center;min-width:0}.pf-model-lane-label{min-width:0}.pf-model-lane-label strong,.pf-model-lane-label span{display:block}.pf-model-lane-label span{font-size:.82rem;color:var(--pf-muted,#4f5b66)}.pf-model-plot{min-width:0}.pf-lab svg.pf-model-chart{display:block;width:100%;height:4.35rem}.pf-model-footer{display:grid;grid-template-columns:minmax(0,1fr);gap:.4rem;align-items:start;margin-left:10.95rem}.pf-model-axis{display:flex;justify-content:space-between;gap:1rem;font-size:.8rem;color:var(--pf-muted,#4f5b66)}.pf-model-legend{display:flex;gap:.35rem .8rem;flex-wrap:wrap;justify-content:flex-start;margin:0;padding:0;list-style:none;font-size:.8rem}.pf-model-legend li{display:flex;align-items:center;gap:.3rem;white-space:nowrap}.pf-model-swatch{display:inline-block;width:1.5rem;border-top:3px solid var(--pf-muted,#4f5b66)}.pf-model-swatch.is-latent{border-top-width:2px;border-top-style:dashed}.pf-model-swatch.is-v1{border-color:var(--pf-warn,#8a5000)}.pf-model-swatch.is-v2{border-color:var(--pf-accent,#1464b5)}"
+   ".pf-failure-shell{display:grid;gap:1rem;min-width:0}.pf-failure-heading{display:flex;justify-content:space-between;align-items:baseline;gap:.75rem;flex-wrap:wrap}.pf-failure-heading h4,.pf-failure-heading p{margin:0}.pf-failure-heading p{color:var(--pf-muted,#4f5b66);font-variant-numeric:tabular-nums}.pf-failure-settings-key{margin:0;color:var(--pf-muted,#4f5b66);font-size:.88rem}.pf-failure-settings-key strong{color:var(--bs-body-color,#212529)}.pf-failure-selector{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,9rem),1fr));gap:.55rem}.pf-failure-button{display:grid;gap:.2rem;min-width:0;text-align:left;border:1px solid var(--bs-border-color,#6c757d);border-radius:.5rem;padding:.65rem .75rem;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529);cursor:pointer}.pf-failure-button span{font-size:.78rem;color:var(--pf-muted,#4f5b66);overflow-wrap:anywhere}.pf-failure-button[aria-pressed=true]{border-color:var(--pf-accent,#1464b5);box-shadow:inset 0 0 0 2px var(--pf-accent,#1464b5);background:color-mix(in srgb,var(--bs-body-bg,#fff) 90%,var(--pf-accent,#1464b5) 10%)}.pf-failure-plots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem;min-width:0}.pf-failure-plot{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.5rem;padding:.65rem;background:color-mix(in srgb,var(--bs-body-bg,#fff) 96%,var(--pf-accent,#1464b5) 4%)}.pf-failure-plot h5{font-size:.9rem;margin:0 0 .25rem}.pf-lab .pf-failure-plot svg{width:100%;height:7.2rem}.pf-failure-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.55rem}.pf-failure-summary-card{display:grid;align-content:start;gap:.16rem;min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-top:4px solid var(--pf-success,#0f695f);border-radius:.45rem;padding:.65rem;background:var(--bs-body-bg,#fff);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.pf-failure-summary-card.is-fail{border-top-color:var(--pf-fail,#a72f24);background:color-mix(in srgb,var(--bs-body-bg,#fff) 92%,var(--pf-fail,#a72f24) 8%)}.pf-failure-summary-card small,.pf-failure-summary-card span{color:var(--pf-muted,#4f5b66)}.pf-failure-summary-card strong{font-size:1.05rem}.pf-failure-summary-card span{font-size:.78rem}.pf-failure-visual{min-width:0;border-top:1px solid var(--bs-border-color,#dee2e6);padding-top:1rem}.pf-failure-visual>.pf-model-scenario{border-top:0;padding-top:0}"
    ".pf-response-shell{min-width:0;border:1px solid var(--bs-border-color,#ced4da);border-radius:.65rem;padding:clamp(.8rem,3vw,1.3rem);margin:1.25rem 0;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529)}.pf-response-shell h3{margin-top:0}.pf-response-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.55rem;margin:1rem 0}.pf-response-card{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.45rem;padding:.65rem;background:color-mix(in srgb,var(--bs-body-bg,#fff) 94%,var(--pf-accent,#1464b5) 6%);overflow-wrap:anywhere}.pf-response-card strong,.pf-response-card span,.pf-response-card small{display:block}.pf-response-card small{color:var(--pf-muted,#4f5b66);margin-top:.25rem}.pf-response-progress{width:100%;height:.55rem;accent-color:var(--pf-accent,#1464b5)}.pf-response-effects{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;margin:.85rem 0}.pf-response-effect{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-left:4px solid var(--pf-accent,#1464b5);border-radius:.45rem;padding:.65rem;background:color-mix(in srgb,var(--bs-body-bg,#fff) 92%,var(--pf-accent,#1464b5) 8%);overflow-wrap:anywhere}.pf-response-effect.is-fixed{border-left-color:var(--pf-success,#0f695f);background:color-mix(in srgb,var(--bs-body-bg,#fff) 92%,var(--pf-success,#0f695f) 8%)}.pf-response-effect strong,.pf-response-effect span,.pf-response-effect small{display:block}.pf-response-effect small{color:var(--pf-muted,#4f5b66);margin-top:.25rem}.pf-response-status{min-height:2.8rem;font-variant-numeric:tabular-nums}.pf-response-actions{display:flex;gap:.5rem;flex-wrap:wrap}.pf-response-button{border:1px solid var(--bs-border-color,#6c757d);border-radius:.35rem;padding:.55rem .85rem;font-weight:700;cursor:pointer;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529)}.pf-response-button.is-primary{border-color:var(--pf-accent,#1464b5);background:var(--pf-accent,#1464b5);color:#fff}.quarto-dark .pf-response-button.is-primary{color:#10212b}.pf-response-button:disabled{opacity:.5;cursor:not-allowed}.pf-response-button:focus-visible{outline:3px solid color-mix(in srgb,var(--pf-accent,#1464b5) 50%,transparent);outline-offset:2px}"
    ".pf-response-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;margin:.85rem 0}.pf-posterior-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:.8rem;margin:1rem 0}.pf-posterior-panel{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.5rem;padding:.7rem;background:color-mix(in srgb,var(--bs-body-bg,#fff) 96%,var(--pf-accent,#1464b5) 4%)}.pf-posterior-panel h4{font-size:1rem;margin:0 0 .35rem}.pf-posterior-panel>svg{display:block;width:100%;height:auto}.pf-posterior-legend{display:flex;gap:.7rem;flex-wrap:wrap;font-size:.8rem;color:var(--pf-muted,#4f5b66)}.pf-posterior-legend span{display:flex;align-items:center;gap:.25rem}.pf-posterior-legend svg{width:2.1rem;height:.55rem;flex:none}"
    ".pf-quiz-posterior{min-width:0;margin-top:1.2rem;padding-top:.2rem;border-top:1px solid var(--bs-border-color,#dee2e6)}.pf-joint-posterior-panel{min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.5rem;padding:.7rem;margin:1rem 0;background:color-mix(in srgb,var(--bs-body-bg,#fff) 96%,var(--pf-accent,#1464b5) 4%)}.pf-joint-posterior-header{display:flex;justify-content:space-between;align-items:center;gap:.7rem;flex-wrap:wrap}.pf-joint-posterior-header h4{font-size:1rem;margin:0}.pf-joint-posterior-panel>svg{display:block;width:100%;height:auto}.pf-heatmap-view{display:flex;gap:.3rem;flex-wrap:wrap}.pf-heatmap-view button{border:1px solid var(--bs-border-color,#6c757d);border-radius:999px;padding:.32rem .62rem;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529);font-size:.82rem;font-weight:700;cursor:pointer}.pf-heatmap-view button[aria-pressed=true]{border-color:var(--pf-accent,#1464b5);background:var(--pf-accent,#1464b5);color:#fff}.quarto-dark .pf-heatmap-view button[aria-pressed=true]{color:#10212b}.pf-heatmap-view button:disabled{opacity:.45;cursor:not-allowed}.pf-heatmap-view button:focus-visible{outline:3px solid color-mix(in srgb,var(--pf-accent,#1464b5) 50%,transparent);outline-offset:2px}.pf-heatmap-scale{display:grid;grid-template-columns:auto minmax(5rem,12rem) auto;align-items:center;justify-content:start;gap:.35rem .5rem;font-size:.78rem;color:var(--pf-muted,#4f5b66)}.pf-heatmap-scale>strong{grid-column:1/-1;font-size:.78rem}.pf-heatmap-ramp{display:grid;grid-template-columns:repeat(11,minmax(0,1fr));height:.72rem;min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.2rem;overflow:hidden}.pf-heatmap-ramp>span{background:var(--pf-accent,#1464b5)}.pf-heatmap-status{margin:.65rem 0 .2rem;font-variant-numeric:tabular-nums}"
    ".pf-gate-shell{min-width:0}.pf-gate-shell h3{margin-top:0}.pf-gate-banner{display:grid;gap:.25rem;border:2px solid var(--pf-fail,#a72f24);border-left-width:6px;border-radius:.45rem;padding:.8rem .9rem;margin:.7rem 0;background:color-mix(in srgb,var(--bs-body-bg,#fff) 86%,var(--pf-fail,#a72f24) 14%);color:var(--bs-body-color,#212529)}.pf-gate-banner.is-counterfactual{border-color:var(--pf-warn,#8a5000);background:color-mix(in srgb,var(--bs-body-bg,#fff) 84%,var(--pf-warn,#8a5000) 16%)}"
    ".pf-gate-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr));gap:.7rem;margin:1rem 0}.pf-gate-field{display:grid;gap:.4rem;min-width:0;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.45rem;padding:.7rem;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529)}.pf-gate-field>div{display:flex;justify-content:space-between;align-items:baseline;gap:.55rem;flex-wrap:wrap}.pf-gate-field label{font-weight:700}.pf-gate-field output{font-variant-numeric:tabular-nums;color:var(--pf-muted,#4f5b66)}.pf-gate-field input{width:100%;min-width:0;accent-color:var(--pf-accent,#1464b5)}"
    ".pf-gate-table td:nth-child(2){font-variant-numeric:tabular-nums}.pf-gate-reset{border:1px solid var(--pf-accent,#1464b5);border-radius:.4rem;padding:.55rem .8rem;background:var(--bs-body-bg,#fff);color:var(--bs-body-color,#212529);font-weight:700;cursor:pointer}.pf-gate-reset:disabled{opacity:.55;cursor:not-allowed}"
-   "@media(max-width:767px){.pf-response-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:575px){.pf-gate-table th,.pf-gate-table td{white-space:normal;min-width:7rem}.pf-response-effects,.pf-response-summary{grid-template-columns:minmax(0,1fr)}.pf-model-lane{grid-template-columns:minmax(0,1fr);gap:.25rem}.pf-model-footer{margin-left:0}.pf-lab svg.pf-model-chart{height:3.8rem}.pf-model-summary span{white-space:normal}}@media(max-width:400px){.pf-response-grid{grid-template-columns:minmax(0,1fr)}}"))
+   "@media(max-width:767px){.pf-failure-plots{grid-template-columns:minmax(0,1fr)}.pf-failure-summary,.pf-response-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:575px){.pf-gate-table th,.pf-gate-table td{white-space:normal;min-width:7rem}.pf-response-effects,.pf-response-summary{grid-template-columns:minmax(0,1fr)}.pf-model-lane{grid-template-columns:minmax(0,1fr);gap:.25rem}.pf-model-footer{margin-left:0}.pf-lab svg.pf-model-chart{height:3.8rem}.pf-model-summary span{white-space:normal}}@media(max-width:400px){.pf-failure-summary,.pf-response-grid{grid-template-columns:minmax(0,1fr)}}"
+   "@media(min-width:768px){.pf-failure-selector{grid-template-columns:repeat(4,minmax(0,1fr))}}"
+   "@media(max-width:767px){.pf-failure-selector{grid-template-columns:repeat(2,minmax(0,1fr))}}"
+   "@media(max-width:400px){.pf-failure-selector{grid-template-columns:minmax(0,1fr)}}"))
 
 (let [style (.createElement js/document "style")]
   (set! (.-textContent style) styles)
@@ -1108,6 +1342,10 @@
   (mount! "pair-frequency-curve-explorer" curve-explorer)
   (mount! "pair-frequency-model-scenarios" model-scenario-visualizations)
   (load-model-scenarios!)
+  (when failure-data
+    (mount! "pair-frequency-failure-cases" failure-case-explorer)
+    (when initial-failure-id
+      (load-failure-case! initial-failure-id)))
   (mount! "pair-frequency-simulation-lab" simulation-lab))
 
 (mount! "pair-frequency-response-inference-simulator"

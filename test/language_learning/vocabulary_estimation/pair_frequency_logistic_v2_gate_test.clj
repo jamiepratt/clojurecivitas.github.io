@@ -1,11 +1,42 @@
 (ns language-learning.vocabulary-estimation.pair-frequency-logistic-v2-gate-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.test :refer [deftest is]]
             [language-learning.vocabulary-estimation.pair-frequency-logistic-v2-gate :as gate]))
+
+(defn read-evidence [resource-name]
+  (edn/read-string
+   (slurp (io/resource
+           (str "language_learning/vocabulary_estimation/" resource-name)))))
 
 (deftest precommitted-grid-test
   (is (= 100 (count gate/tuning-rules)))
   (is (= 45 (count gate/supported-cells)))
   (is (= 60 (count gate/stress-cells))))
+
+(deftest tuning-cell-replay-retains-cell-identities-without-rewriting-history
+  (let [historical (read-evidence "pair_frequency_logistic_v2_tuning.edn")
+        replay (read-evidence "pair_frequency_logistic_v2_tuning_cells.edn")
+        cells (:cells replay)
+        historical-candidate
+        (first (filter #(= gate/diagnostic-rule (:rule %))
+                       (:rules historical)))]
+    (is (= :tuning-cell-replay (:phase replay)))
+    (is (= gate/diagnostic-rule (:rule replay)))
+    (is (= 500 (:replicates-per-cell replay)))
+    (is (= 45 (count cells)))
+    (is (= gate/supported-cells (mapv :cell cells)))
+    (is (= (select-keys historical-candidate
+                        [:aggregate :minimum-cell-coverage
+                         :maximum-cell-mae-ratio])
+           (:historical-summary replay)))
+    (is (= (apply min (map #(get-in % [:v2 :coverage]) cells))
+           (get-in replay [:replay-summary :minimum-cell-coverage])))
+    (is (= (apply max (map :mae-ratio cells))
+           (get-in replay [:replay-summary :maximum-cell-mae-ratio])))
+    (is (not= (get-in replay [:historical-summary :minimum-cell-coverage])
+              (get-in replay [:replay-summary :minimum-cell-coverage]))
+        "The diagnostic replay must not be relabelled as the historical run")))
 
 (deftest complete-round-stopping-test
   (let [checkpoints

@@ -6,6 +6,8 @@
                   :description "A learning-in-public first pass at estimating receptive vocabulary from stratified responses with a Beta–binomial model."
                   :type :post
                   :date "2026-07-12"
+                  :image "beta_binomial_first_pass_preview.png"
+                  :image-alt "Beta-binomial posterior density after twelve vocabulary responses, with Correct, Wrong, Do not know, and Reset controls."
                   :category :concepts
                   :tags [:bayesian-statistics :language-learning :clojure :scittle]
                   :keywords [:vocabulary-estimation :beta-binomial :posterior-predictive :stratified-sampling]}}}
